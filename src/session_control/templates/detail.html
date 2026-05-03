@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ session.title }} · Session Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+  </head>
+  <body>
+    <main class="shell detail-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">{{ session.provider }} · {{ session.updated_at|datetime }}</p>
+          <h1>{{ session.title }}</h1>
+        </div>
+        <a class="button ghost" href="{{ url_for('index') }}">Back</a>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages" aria-live="polite">
+            {% for category, message in messages %}
+              <div class="message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <section class="detail-grid">
+        <div class="detail-block">
+          <h2>Resume</h2>
+          <code class="command large">{{ session.resume_command }}</code>
+          <button class="button copy" type="button" data-copy="{{ session.resume_command }}">Copy</button>
+        </div>
+
+        <div class="detail-block">
+          <h2>Metadata</h2>
+          <dl class="facts">
+            <div><dt>ID</dt><dd>{{ session.session_id }}</dd></div>
+            <div><dt>Workspace</dt><dd>{{ session.workspace or 'unknown' }}</dd></div>
+            <div><dt>Created</dt><dd>{{ session.created_at|datetime }}</dd></div>
+            <div><dt>Updated</dt><dd>{{ session.updated_at|datetime }}</dd></div>
+            <div><dt>Messages</dt><dd>{{ session.message_count }}</dd></div>
+            <div><dt>Size</dt><dd>{{ session.size_bytes|bytes }}</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      {% if session.preview %}
+        <section class="detail-block">
+          <h2>Preview</h2>
+          <p class="preview full">{{ session.preview }}</p>
+        </section>
+      {% endif %}
+
+      <section class="detail-block">
+        <h2>Files</h2>
+        <ul class="files">
+          {% for path in session.delete_targets %}
+            <li>{{ path }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <form class="delete-row" method="post" action="{{ url_for('delete_session', public_id=session.public_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button danger" type="submit" {% if session.active %}disabled{% endif %}>Delete Session</button>
+      </form>
+    </main>
+  </body>
+</html>

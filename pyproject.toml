@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "session-control"
+version = "0.1.0"
+description = "Private web control plane for local AI assistant session files."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Cason Konzer", email = "casonk@umich.edu" },
+]
+keywords = ["ai", "sessions", "codex", "claude", "copilot", "continue", "flask"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
+  "Topic :: Utilities",
+  "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+  "Flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "ruff",
+  "black",
+]
+
+[project.scripts]
+session-control = "session_control.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/casonk/session-control"
+Repository = "https://github.com/casonk/session-control"
+Changelog = "https://github.com/casonk/session-control/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+session_control = ["templates/*.html", "static/*.css", "static/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008", "SIM108"]

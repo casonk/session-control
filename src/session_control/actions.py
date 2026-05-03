@@ -1,0 +1,111 @@
+"""State-changing operations for session records."""
+
+from __future__ import annotations
+
+import json
+import shutil
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+from session_control.config import AppConfig
+from session_control.models import SessionRecord
+from session_control.scanner import SessionScanner
+
+
+class SessionActionError(RuntimeError):
+    """Raised when a requested session action cannot be completed."""
+
+
+@dataclass(frozen=True)
+class DeleteResult:
+    session: SessionRecord
+    moved_to: Path
+    moved_count: int
+
+
+class SessionActionService:
+    def __init__(self, config: AppConfig, scanner: SessionScanner | None = None):
+        self.config = config
+        self.scanner = scanner or SessionScanner(config)
+
+    def delete(self, public_id: str) -> DeleteResult:
+        session = self._find(public_id)
+        if session.active:
+            raise SessionActionError("Refusing to delete a session that appears to be active.")
+        provider_root = self.config.provider_root(session.provider)
+        batch_dir = self._trash_batch_dir(session)
+        moved = 0
+        for target in session.delete_targets:
+            if not target.exists():
+                continue
+            if not _is_under(target, provider_root):
+                raise SessionActionError(f"Refusing to delete path outside provider root: {target}")
+            destination = batch_dir / target.name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(target), str(destination))
+            moved += 1
+        if session.provider == "codex":
+            _remove_codex_index_entry(provider_root / "session_index.jsonl", session.session_id)
+        if session.provider == "continue":
+            _remove_continue_index_entry(
+                provider_root / "sessions" / "sessions.json", session.session_id
+            )
+        return DeleteResult(session=session, moved_to=batch_dir, moved_count=moved)
+
+    def _find(self, public_id: str) -> SessionRecord:
+        for session in self.scanner.scan().sessions:
+            if session.public_id == public_id:
+                return session
+        raise SessionActionError("Session was not found. Refresh and try again.")
+
+    def _trash_batch_dir(self, session: SessionRecord) -> Path:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        safe_session = "".join(
+            ch if ch.isalnum() or ch in "-_" else "_" for ch in session.session_id
+        )
+        return self.config.trash_dir / timestamp / session.provider / safe_session
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _remove_codex_index_entry(path: Path, session_id: str) -> None:
+    if not path.exists():
+        return
+    kept_lines = []
+    try:
+        for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                item = json.loads(raw_line)
+            except json.JSONDecodeError:
+                kept_lines.append(raw_line)
+                continue
+            if str(item.get("id") or "") != session_id:
+                kept_lines.append(raw_line)
+        path.write_text("\n".join(kept_lines).rstrip() + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise SessionActionError(f"Could not update Codex session index: {exc}") from exc
+
+
+def _remove_continue_index_entry(path: Path, session_id: str) -> None:
+    if not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SessionActionError(f"Could not read Continue session index: {exc}") from exc
+    if not isinstance(data, list):
+        return
+    kept = [
+        item for item in data if not isinstance(item, dict) or item.get("sessionId") != session_id
+    ]
+    try:
+        path.write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise SessionActionError(f"Could not update Continue session index: {exc}") from exc
