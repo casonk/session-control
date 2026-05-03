@@ -25,6 +25,7 @@ session-control/
 │   └── static/
 ├── tests/
 ├── scripts/install_web_service.sh
+├── scripts/install_prune_timer.sh
 └── docs/
 ```
 
@@ -61,10 +62,23 @@ Run a scan without the web UI:
 session-control scan --json
 ```
 
+Preview or run retention cleanup:
+
+```bash
+session-control prune --older-than 180d --dry-run
+session-control prune --older-than 180d
+```
+
 Install the user service:
 
 ```bash
 ./scripts/install_web_service.sh
+```
+
+Install the daily clockwork prune timer:
+
+```bash
+./scripts/install_prune_timer.sh --older-than 180d
 ```
 
 ## Local CI Verification

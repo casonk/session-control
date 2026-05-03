@@ -46,6 +46,7 @@ Common variables:
 | `SESSION_CONTROL_PUBLIC_ORIGIN` | unset | External origin used by a trusted proxy |
 | `SESSION_CONTROL_ALLOWED_ORIGINS` | unset | Comma-separated extra origins for CSRF checks |
 | `SESSION_CONTROL_TRASH_DIR` | `~/.local/share/session-control/trash` | Delete destination |
+| `SESSION_CONTROL_PRUNE_OLDER_THAN` | `180d` | Default age for scheduled pruning |
 
 Set `SESSION_CONTROL_ALLOW_REMOTE=1` only when intentionally binding the Flask
 app outside loopback. The preferred phone path is still a loopback app behind
@@ -68,6 +69,38 @@ Delete actions move session files or directories into the configured trash
 directory instead of hard-deleting them immediately. Continue and Codex index
 files are updated when a session is removed. Copilot sessions with a live
 `inuse.<pid>.lock` are not deleted.
+
+## Pruning
+
+Pruning uses the same delete-to-trash path as the web UI. A session is eligible
+when its last activity timestamp is older than the configured age; active
+sessions are skipped.
+
+Preview the default 180-day cleanup:
+
+```bash
+session-control prune --older-than 180d --dry-run
+```
+
+Run the cleanup:
+
+```bash
+session-control prune --older-than 180d
+```
+
+Install the daily user-level clockwork timer:
+
+```bash
+./scripts/install_prune_timer.sh --older-than 180d
+```
+
+The timer is rendered from
+`config/clockwork/prune-sessions.toml.template` and runs daily at 03:35 with a
+small randomized delay. It can be inspected with:
+
+```bash
+systemctl --user list-timers session-control-prune.timer
+```
 
 ## Development
 
