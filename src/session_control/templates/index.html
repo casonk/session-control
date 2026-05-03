@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Session Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Session Control</h1>
+          <p>{{ sessions|length }} visible session{{ '' if sessions|length == 1 else 's' }}</p>
+        </div>
+        <a class="button ghost" href="{{ url_for('index') }}">Refresh</a>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages" aria-live="polite">
+            {% for category, message in messages %}
+              <div class="message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      {% if errors %}
+        <section class="messages" aria-live="polite">
+          {% for error in errors %}
+            <div class="message error">{{ error.provider }}: {{ error.message }}</div>
+          {% endfor %}
+        </section>
+      {% endif %}
+
+      <form class="filters" method="get" action="{{ url_for('index') }}">
+        <label>
+          <span>Provider</span>
+          <select name="provider">
+            <option value="">All</option>
+            {% for provider in providers %}
+              <option value="{{ provider }}" {% if selected_provider == provider %}selected{% endif %}>
+                {{ provider }}{% if counts[provider] %} ({{ counts[provider] }}){% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>Search</span>
+          <input name="q" value="{{ query }}" placeholder="title, workspace, prompt, id">
+        </label>
+        <button class="button primary" type="submit">Filter</button>
+      </form>
+
+      <section class="session-list" aria-label="Sessions">
+        {% for item in sessions %}
+          <article class="session">
+            <div class="session-main">
+              <div class="session-head">
+                <span class="provider {{ item.provider }}">{{ item.provider }}</span>
+                {% if item.active %}<span class="status active">active</span>{% endif %}
+              </div>
+              <h2><a href="{{ url_for('detail', public_id=item.public_id) }}">{{ item.title }}</a></h2>
+              <p class="meta">
+                {{ item.updated_at|datetime }} · {{ item.updated_at|age }} · {{ item.message_count }} messages · {{ item.size_bytes|bytes }}
+              </p>
+              {% if item.workspace %}
+                <p class="workspace">{{ item.workspace }}</p>
+              {% endif %}
+              {% if item.preview %}
+                <p class="preview">{{ item.preview }}</p>
+              {% endif %}
+              <code class="command">{{ item.resume_command }}</code>
+            </div>
+            <div class="actions">
+              <button class="button copy" type="button" data-copy="{{ item.resume_command }}">Copy</button>
+              <a class="button ghost" href="{{ url_for('detail', public_id=item.public_id) }}">Review</a>
+              <form method="post" action="{{ url_for('delete_session', public_id=item.public_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="button danger" type="submit" {% if item.active %}disabled{% endif %}>Delete</button>
+              </form>
+            </div>
+          </article>
+        {% else %}
+          <section class="empty">No sessions matched.</section>
+        {% endfor %}
+      </section>
+    </main>
+  </body>
+</html>

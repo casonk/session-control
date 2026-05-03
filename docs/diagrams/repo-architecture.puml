@@ -1,0 +1,33 @@
+@startuml
+title session-control repository architecture
+
+actor User
+rectangle "session-control" {
+  component "CLI\nsession_control.cli" as CLI
+  component "Flask UI\nsession_control.web" as Web
+  component "Scanner\nsession_control.scanner" as Scanner
+  component "Actions\nsession_control.actions" as Actions
+  database "Local trash dir" as Trash
+}
+
+database "Codex\n~/.codex" as Codex
+database "Claude Code\n~/.claude" as Claude
+database "Continue\n~/.continue" as Continue
+database "Copilot CLI\n~/.copilot" as Copilot
+
+User --> CLI
+User --> Web
+CLI --> Scanner
+Web --> Scanner
+Web --> Actions
+Scanner --> Codex
+Scanner --> Claude
+Scanner --> Continue
+Scanner --> Copilot
+Actions --> Trash
+Actions --> Codex
+Actions --> Continue
+Actions --> Copilot
+Actions --> Claude
+
+@enduml
