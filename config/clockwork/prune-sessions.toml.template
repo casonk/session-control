@@ -1,0 +1,23 @@
+[[jobs]]
+name = "session-control-prune"
+description = "Prune inactive local AI assistant sessions older than __OLDER_THAN__"
+scope = "user"
+service_type = "oneshot"
+working_directory = "__REPO_ROOT__"
+exec_start = "__REPO_ROOT__/.venv/bin/session-control prune --older-than __OLDER_THAN__"
+environment = { SESSION_CONTROL_ENV_FILE = "__REPO_ROOT__/config/session-control.env.local" }
+environment_files = ["-__REPO_ROOT__/config/session-control.env.local"]
+standard_output = "journal"
+standard_error = "journal"
+timer_description = "Run session-control daily session cleanup"
+
+[jobs.timer]
+kind = "calendar"
+on_calendar = "*-*-* 03:35:00"
+persistent = true
+randomized_delay_sec = "900"
+
+[jobs.cron]
+expression = "35 3 * * *"
+command = "cd __REPO_ROOT__ && __REPO_ROOT__/.venv/bin/session-control prune --older-than __OLDER_THAN__ >> $HOME/.local/share/session-control/prune.log 2>&1"
+comments = ["Auto-generated from systemd timer: *-*-* 03:35:00"]

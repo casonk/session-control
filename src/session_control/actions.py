@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from session_control.config import AppConfig
-from session_control.models import SessionRecord
+from session_control.models import ScanError, SessionRecord
 from session_control.scanner import SessionScanner
 
 
@@ -24,6 +24,30 @@ class DeleteResult:
     moved_count: int
 
 
+@dataclass(frozen=True)
+class PruneSkipped:
+    session: SessionRecord
+    reason: str
+
+
+@dataclass(frozen=True)
+class PruneError:
+    provider: str
+    message: str
+    session: SessionRecord | None = None
+
+
+@dataclass(frozen=True)
+class PruneResult:
+    cutoff: datetime
+    dry_run: bool
+    scanned_count: int
+    eligible: tuple[SessionRecord, ...]
+    deleted: tuple[DeleteResult, ...]
+    skipped: tuple[PruneSkipped, ...]
+    errors: tuple[PruneError, ...]
+
+
 class SessionActionService:
     def __init__(self, config: AppConfig, scanner: SessionScanner | None = None):
         self.config = config
@@ -31,6 +55,55 @@ class SessionActionService:
 
     def delete(self, public_id: str) -> DeleteResult:
         session = self._find(public_id)
+        return self._delete_session(session)
+
+    def prune(
+        self,
+        older_than: timedelta,
+        *,
+        providers: tuple[str, ...] | None = None,
+        dry_run: bool = False,
+        now: datetime | None = None,
+    ) -> PruneResult:
+        if older_than <= timedelta(0):
+            raise SessionActionError("Prune age must be greater than zero.")
+        reference_time = _to_utc(now or datetime.now(timezone.utc))
+        cutoff = reference_time - older_than
+        report = self.scanner.scan(providers=providers)
+        eligible: list[SessionRecord] = []
+        deleted: list[DeleteResult] = []
+        skipped: list[PruneSkipped] = []
+        errors = [_prune_error_from_scan_error(error) for error in report.errors]
+
+        for session in report.sessions:
+            activity_at = _session_activity_at(session)
+            if activity_at is None or activity_at >= cutoff:
+                continue
+            if session.active:
+                skipped.append(PruneSkipped(session=session, reason="active"))
+                continue
+            eligible.append(session)
+
+        if not dry_run:
+            for session in eligible:
+                try:
+                    deleted.append(self._delete_session(session))
+                except SessionActionError as exc:
+                    errors.append(
+                        PruneError(provider=session.provider, session=session, message=str(exc))
+                    )
+
+        return PruneResult(
+            cutoff=cutoff,
+            dry_run=dry_run,
+            scanned_count=len(report.sessions),
+            eligible=tuple(eligible),
+            deleted=tuple(deleted),
+            skipped=tuple(skipped),
+            errors=tuple(errors),
+        )
+
+    def _delete_session(self, session: SessionRecord) -> DeleteResult:
         if session.active:
             raise SessionActionError("Refusing to delete a session that appears to be active.")
         provider_root = self.config.provider_root(session.provider)
@@ -65,6 +138,33 @@ class SessionActionService:
             ch if ch.isalnum() or ch in "-_" else "_" for ch in session.session_id
         )
         return self.config.trash_dir / timestamp / session.provider / safe_session
+
+
+def _prune_error_from_scan_error(error: ScanError) -> PruneError:
+    return PruneError(provider=error.provider, message=error.message)
+
+
+def _session_activity_at(session: SessionRecord) -> datetime | None:
+    return _parse_datetime(session.updated_at) or _parse_datetime(session.created_at)
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    candidate = value.strip()
+    if candidate.endswith("Z"):
+        candidate = candidate[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return None
+    return _to_utc(parsed)
+
+
+def _to_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _is_under(path: Path, root: Path) -> bool:
