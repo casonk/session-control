@@ -1,0 +1,84 @@
+@startuml classes_session-control
+set namespaceSeparator none
+class "AppConfig" as session_control.config.AppConfig {
+  allowed_origins : tuple[str, ...]
+  claude_root : Path
+  codex_root : Path
+  continue_root : Path
+  copilot_root : Path
+  max_preview_chars : int
+  public_origin : str | None
+  secret_key : str
+  trash_dir : Path
+  from_env() -> AppConfig
+  provider_root(provider: str) -> Path
+}
+class "DeleteResult" as session_control.actions.DeleteResult {
+  moved_count : int
+  moved_to : Path
+  session
+}
+class "PruneError" as session_control.actions.PruneError {
+  message : str
+  provider : str
+  session : SessionRecord | None
+}
+class "PruneResult" as session_control.actions.PruneResult {
+  cutoff : datetime
+  deleted : tuple[DeleteResult, ...]
+  dry_run : bool
+  eligible : tuple[SessionRecord, ...]
+  errors : tuple[PruneError, ...]
+  scanned_count : int
+  skipped : tuple[PruneSkipped, ...]
+}
+class "PruneSkipped" as session_control.actions.PruneSkipped {
+  reason : str
+  session
+}
+class "ScanError" as session_control.models.ScanError {
+  message : str
+  provider : str
+  to_dict() -> dict[str, str]
+}
+class "ScanReport" as session_control.models.ScanReport {
+  errors : tuple[ScanError, ...]
+  sessions : tuple[SessionRecord, ...]
+  to_dict() -> dict[str, Any]
+}
+class "<color:red>SessionActionError</color>" as session_control.actions.SessionActionError {
+}
+class "SessionActionService" as session_control.actions.SessionActionService {
+  config
+  scanner
+  delete(public_id: str) -> DeleteResult
+  prune(older_than: timedelta) -> PruneResult
+}
+class "SessionRecord" as session_control.models.SessionRecord {
+  active : bool
+  created_at : str
+  delete_targets : tuple[Path, ...]
+  message_count : int
+  metadata : dict[str, Any]
+  preview : str
+  primary_path : Path
+  provider : str
+  public_id : str
+  resume_command : str
+  session_id : str
+  size_bytes : int
+  title : str
+  updated_at : str
+  workspace : str
+  to_dict() -> dict[str, Any]
+}
+class "SessionScanner" as session_control.scanner.SessionScanner {
+  config
+  scan(providers: tuple[str, ...] | None) -> ScanReport
+}
+session_control.actions.DeleteResult --> session_control.models.SessionRecord : session
+session_control.actions.PruneSkipped --> session_control.models.SessionRecord : session
+session_control.actions.SessionActionService --> session_control.scanner.SessionScanner : scanner
+session_control.config.AppConfig --o session_control.actions.SessionActionService : config
+session_control.config.AppConfig --o session_control.scanner.SessionScanner : config
+@enduml
