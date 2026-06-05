@@ -63,10 +63,16 @@
         </ul>
       </section>
 
-      <form class="delete-row" method="post" action="{{ url_for('delete_session', public_id=session.public_id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button danger" type="submit" {% if session.active %}disabled{% endif %}>Delete Session</button>
-      </form>
+      <div class="delete-row" style="display:flex;gap:8px;align-items:center;">
+        <form method="post" action="{{ url_for('open_session', public_id=session.public_id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button primary" type="submit">Open in Web Terminal</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_session', public_id=session.public_id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button danger" type="submit" {% if session.active %}disabled{% endif %}>Delete Session</button>
+        </form>
+      </div>
     </main>
   </body>
 </html>
