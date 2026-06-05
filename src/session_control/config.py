@@ -19,6 +19,8 @@ class AppConfig:
     public_origin: str | None = None
     allowed_origins: tuple[str, ...] = ()
     max_preview_chars: int = 900
+    webterm_url: str | None = None
+    tmux_session: str = "pit-box"
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -36,6 +38,8 @@ class AppConfig:
             public_origin=os.environ.get("SESSION_CONTROL_PUBLIC_ORIGIN") or None,
             allowed_origins=_split_csv(os.environ.get("SESSION_CONTROL_ALLOWED_ORIGINS", "")),
             max_preview_chars=int(os.environ.get("SESSION_CONTROL_MAX_PREVIEW_CHARS", "900")),
+            webterm_url=os.environ.get("SESSION_CONTROL_WEBTERM_URL") or None,
+            tmux_session=os.environ.get("SESSION_CONTROL_TMUX_SESSION") or "pit-box",
         )
 
     def provider_root(self, provider: str) -> Path:

@@ -66,6 +66,7 @@ def create_app(
             selected_provider=selected_provider,
             query=query,
             csrf_token=_csrf_token(),
+            webterm_url=app_config.webterm_url,
         )
 
     @app.get("/sessions/<public_id>")
@@ -78,6 +79,7 @@ def create_app(
             "detail.html",
             session=session_record,
             csrf_token=_csrf_token(),
+            webterm_url=app_config.webterm_url,
         )
 
     @app.get("/api/sessions")
@@ -88,6 +90,18 @@ def create_app(
     @app.get("/healthz")
     def healthz():
         return jsonify({"ok": True})
+
+    @app.post("/sessions/<public_id>/open")
+    def open_session(public_id: str):
+        if not app_config.webterm_url:
+            flash("Web terminal URL is not configured (SESSION_CONTROL_WEBTERM_URL).", "error")
+            return redirect(request.referrer or url_for("index"))
+        try:
+            app_actions.open_in_webterm(public_id)
+        except SessionActionError as exc:
+            flash(str(exc), "error")
+            return redirect(request.referrer or url_for("index"))
+        return redirect(app_config.webterm_url)
 
     @app.post("/sessions/<public_id>/delete")
     def delete_session(public_id: str):

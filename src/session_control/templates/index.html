@@ -75,6 +75,10 @@
               <code class="command">{{ item.resume_command }}</code>
             </div>
             <div class="actions">
+              <form method="post" action="{{ url_for('open_session', public_id=item.public_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="button primary" type="submit">Open</button>
+              </form>
               <button class="button copy" type="button" data-copy="{{ item.resume_command }}">Copy</button>
               <a class="button ghost" href="{{ url_for('detail', public_id=item.public_id) }}">Review</a>
               <form method="post" action="{{ url_for('delete_session', public_id=item.public_id) }}">

@@ -9,13 +9,18 @@ class "AppConfig" as session_control.config.AppConfig {
   max_preview_chars : int
   public_origin : str | None
   secret_key : str
+  tmux_session : str
   trash_dir : Path
+  webterm_url : str | None
   from_env() -> AppConfig
   provider_root(provider: str) -> Path
 }
 class "DeleteResult" as session_control.actions.DeleteResult {
   moved_count : int
   moved_to : Path
+  session
+}
+class "OpenResult" as session_control.actions.OpenResult {
   session
 }
 class "PruneError" as session_control.actions.PruneError {
@@ -52,6 +57,7 @@ class "SessionActionService" as session_control.actions.SessionActionService {
   config
   scanner
   delete(public_id: str) -> DeleteResult
+  open_in_webterm(public_id: str) -> OpenResult
   prune(older_than: timedelta) -> PruneResult
 }
 class "SessionRecord" as session_control.models.SessionRecord {
@@ -77,6 +83,7 @@ class "SessionScanner" as session_control.scanner.SessionScanner {
   scan(providers: tuple[str, ...] | None) -> ScanReport
 }
 session_control.actions.DeleteResult --> session_control.models.SessionRecord : session
+session_control.actions.OpenResult --> session_control.models.SessionRecord : session
 session_control.actions.PruneSkipped --> session_control.models.SessionRecord : session
 session_control.actions.SessionActionService --> session_control.scanner.SessionScanner : scanner
 session_control.config.AppConfig --o session_control.actions.SessionActionService : config
