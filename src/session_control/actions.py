@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +16,11 @@ from session_control.scanner import SessionScanner
 
 class SessionActionError(RuntimeError):
     """Raised when a requested session action cannot be completed."""
+
+
+@dataclass(frozen=True)
+class OpenResult:
+    session: SessionRecord
 
 
 @dataclass(frozen=True)
@@ -52,6 +58,26 @@ class SessionActionService:
     def __init__(self, config: AppConfig, scanner: SessionScanner | None = None):
         self.config = config
         self.scanner = scanner or SessionScanner(config)
+
+    def open_in_webterm(self, public_id: str) -> OpenResult:
+        session = self._find(public_id)
+        window_name = session.title[:20].strip() or session.session_id[:12]
+        result = subprocess.run(
+            [
+                "tmux",
+                "new-window",
+                "-t",
+                self.config.tmux_session,
+                "-n",
+                window_name,
+                session.resume_command,
+            ],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            err = result.stderr.decode(errors="replace").strip()
+            raise SessionActionError(f"Could not open tmux window: {err}")
+        return OpenResult(session=session)
 
     def delete(self, public_id: str) -> DeleteResult:
         session = self._find(public_id)
