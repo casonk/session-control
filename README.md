@@ -66,6 +66,31 @@ Set `SESSION_CONTROL_CODEX_RESUME_MODEL` to force a known-good Codex model for
 web-launched resumes when the global Codex default is not supported by the
 machine's current auth mode.
 
+The Open action creates a tmux window in the configured webterm session, selects
+that window for new webterm tabs, and keeps the window open when the resume
+command exits with an error so the failure message is visible.
+
+## Assistant Usage
+
+When Codex session files include `token_count` events, the index page shows the
+newest known last-turn token usage, context window, session total, plan type,
+and primary/secondary rate-limit percentages.
+
+When Claude Code session files include assistant `message.usage` objects, the
+index page shows the newest known last-turn token usage, session token total,
+cache token counts, model, and service tier. Claude Code local session files do
+not record plan limit windows, reset times, or usage percentages, so the web UI
+labels Claude limits as not locally recorded instead of inventing a limit value.
+
+Set `SESSION_CONTROL_CLAUDE_STATUS_POLL=1` to have the web service periodically
+run a sanitized Claude CLI status command. The default command is
+`claude auth status --json`, which reports auth/subscription status on current
+Claude Code releases but still does not expose usage-limit windows or reset
+percentages. If a future Claude CLI version adds limit fields to that JSON,
+session-control will surface sanitized limit/usage fields automatically.
+When running under systemd, set `SESSION_CONTROL_CLAUDE_STATUS_COMMAND` to an
+absolute `claude` path if the service PATH cannot find the CLI.
+
 ## Delete Behavior
 
 Delete actions move session files or directories into the configured trash

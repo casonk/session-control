@@ -17,6 +17,69 @@
         <a class="button ghost" href="{{ url_for('index') }}">Refresh</a>
       </header>
 
+      {% if codex_usage %}
+        <section class="usage-strip" aria-label="Codex usage">
+          <div>
+            <span>Codex last turn</span>
+            <strong>{{ codex_usage.last_total_tokens|integer }} / {{ codex_usage.context_window|integer }}</strong>
+          </div>
+          <div>
+            <span>Session total</span>
+            <strong>{{ codex_usage.session_total_tokens|integer }}</strong>
+          </div>
+          <div>
+            <span>{{ codex_usage.plan_type or 'plan' }} 5h</span>
+            <strong>{{ codex_usage.primary_used_percent|percent }}</strong>
+            {% if codex_usage.primary_resets_at %}<small>resets {{ codex_usage.primary_resets_at|datetime }}</small>{% endif %}
+          </div>
+          <div>
+            <span>7d</span>
+            <strong>{{ codex_usage.secondary_used_percent|percent }}</strong>
+            {% if codex_usage.secondary_resets_at %}<small>resets {{ codex_usage.secondary_resets_at|datetime }}</small>{% endif %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if claude_usage or claude_status %}
+        <section class="usage-strip" aria-label="Claude usage">
+          <div>
+            <span>Claude last turn</span>
+            <strong>{{ claude_usage.last_total_tokens|integer if claude_usage else 'unknown' }}</strong>
+            {% if claude_usage and claude_usage.model %}<small>{{ claude_usage.model }}</small>{% endif %}
+          </div>
+          <div>
+            <span>Claude session total</span>
+            <strong>{{ claude_usage.session_total_tokens|integer if claude_usage else 'unknown' }}</strong>
+            {% if claude_usage and claude_usage.service_tier %}
+              <small>{{ claude_usage.service_tier }}{% if claude_usage.speed %} / {{ claude_usage.speed }}{% endif %}</small>
+            {% endif %}
+          </div>
+          <div>
+            <span>Cache tokens</span>
+            <strong>{{ claude_usage.cache_read_input_tokens|integer if claude_usage else 'unknown' }} read</strong>
+            <small>{{ claude_usage.cache_creation_input_tokens|integer if claude_usage else 'unknown' }} created</small>
+          </div>
+          <div>
+            <span>Claude limits</span>
+            {% if claude_status %}
+              <strong>{{ 'captured' if claude_status.limits_available else 'not exposed' }}</strong>
+              <small>
+                {% if claude_status.subscription_type %}
+                  {{ claude_status.subscription_type }}
+                {% elif claude_status.ok %}
+                  authenticated
+                {% else %}
+                  {{ claude_status.message }}
+                {% endif %}
+              </small>
+            {% else %}
+              <strong>not recorded</strong>
+              <small>local files expose usage only</small>
+            {% endif %}
+          </div>
+        </section>
+      {% endif %}
+
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           <section class="messages" aria-live="polite">

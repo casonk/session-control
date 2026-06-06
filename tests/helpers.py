@@ -18,6 +18,7 @@ def seed_codex(
     root: Path,
     session_id: str = "019d016b-30c2-7992-970a-b6082c1a2723",
     model: str = "",
+    token_count: bool = False,
 ) -> Path:
     write_jsonl(
         root / "session_index.jsonl",
@@ -54,6 +55,34 @@ def seed_codex(
                 },
             }
         )
+    if token_count:
+        rows.append(
+            {
+                "timestamp": "2026-04-01T12:02:00Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "total_token_usage": {"total_tokens": 125000},
+                        "last_token_usage": {"total_tokens": 24000},
+                        "model_context_window": 258400,
+                    },
+                    "rate_limits": {
+                        "primary": {
+                            "used_percent": 33.0,
+                            "window_minutes": 300,
+                            "resets_at": 1775048400,
+                        },
+                        "secondary": {
+                            "used_percent": 17.0,
+                            "window_minutes": 10080,
+                            "resets_at": 1775653200,
+                        },
+                        "plan_type": "plus",
+                    },
+                },
+            }
+        )
     rows.append(
         {
             "timestamp": "2026-04-01T12:05:00Z",
@@ -69,21 +98,45 @@ def seed_codex(
     return session_path
 
 
-def seed_claude(root: Path, session_id: str = "c7df09f0-b9f2-4563-853e-f64fd095128f") -> Path:
+def seed_claude(
+    root: Path,
+    session_id: str = "c7df09f0-b9f2-4563-853e-f64fd095128f",
+    token_count: bool = False,
+) -> Path:
     session_path = root / "projects" / "-workspace-crew-chief" / f"{session_id}.jsonl"
-    write_jsonl(
-        session_path,
-        [
-            {"type": "permission-mode", "permissionMode": "default", "sessionId": session_id},
+    rows = [
+        {"type": "permission-mode", "permissionMode": "default", "sessionId": session_id},
+        {
+            "type": "user",
+            "timestamp": "2026-04-02T10:00:00Z",
+            "sessionId": session_id,
+            "cwd": "/workspace/crew-chief",
+            "message": {"role": "user", "content": "Create the local LLM service"},
+        },
+    ]
+    if token_count:
+        rows.append(
             {
-                "type": "user",
-                "timestamp": "2026-04-02T10:00:00Z",
+                "type": "assistant",
+                "timestamp": "2026-04-02T10:03:00Z",
                 "sessionId": session_id,
                 "cwd": "/workspace/crew-chief",
-                "message": {"role": "user", "content": "Create the local LLM service"},
-            },
-        ],
-    )
+                "message": {
+                    "role": "assistant",
+                    "model": "claude-sonnet-4-6",
+                    "content": [{"type": "text", "text": "Done"}],
+                    "usage": {
+                        "input_tokens": 12,
+                        "cache_creation_input_tokens": 100,
+                        "cache_read_input_tokens": 200,
+                        "output_tokens": 34,
+                        "service_tier": "standard",
+                        "speed": "standard",
+                    },
+                },
+            }
+        )
+    write_jsonl(session_path, rows)
     return session_path
 
 
