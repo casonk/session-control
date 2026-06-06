@@ -53,7 +53,12 @@ class SessionScanner:
             if not base.exists():
                 continue
             for path in base.rglob("*.jsonl"):
-                record = _codex_record(path, index, self.config.max_preview_chars)
+                record = _codex_record(
+                    path,
+                    index,
+                    self.config.max_preview_chars,
+                    self.config.codex_resume_model,
+                )
                 if record:
                     records.append(record)
         return records
@@ -106,6 +111,7 @@ def _codex_record(
     path: Path,
     index: dict[str, dict[str, Any]],
     max_preview_chars: int,
+    codex_resume_model: str | None,
 ) -> SessionRecord | None:
     metadata: dict[str, Any] = {}
     user_texts: list[str] = []
@@ -123,11 +129,18 @@ def _codex_record(
                     "agent_role": payload.get("agent_role") or "",
                     "agent_nickname": payload.get("agent_nickname") or "",
                     "model_provider": payload.get("model_provider") or "",
+                    "model": payload.get("model") or metadata.get("model") or "",
                 }
             )
             metadata["session_id"] = str(payload.get("id") or "")
             metadata["created_at"] = _normalize_datetime(str(payload.get("timestamp") or ""))
             metadata["workspace"] = str(payload.get("cwd") or "")
+            continue
+        if item.get("type") == "turn_context" and isinstance(item.get("payload"), dict):
+            payload = item["payload"]
+            model = str(payload.get("model") or "")
+            if model:
+                metadata["model"] = model
             continue
         payload = item.get("payload")
         if not isinstance(payload, dict) or payload.get("type") != "message":
@@ -151,6 +164,9 @@ def _codex_record(
         or _mtime_iso(path)
     )
     workspace = str(metadata.get("workspace") or "")
+    resume_model = codex_resume_model or str(metadata.get("model") or "")
+    if resume_model:
+        metadata["resume_model"] = resume_model
     return SessionRecord(
         provider="codex",
         session_id=session_id,
@@ -163,7 +179,7 @@ def _codex_record(
         size_bytes=_path_size(path),
         message_count=message_count,
         preview=_truncate(_clean_text(first_user), max_preview_chars),
-        resume_command=_command(workspace, ["codex", "resume", session_id]),
+        resume_command=_command(workspace, _codex_resume_args(session_id, resume_model)),
         metadata=metadata,
     )
 
@@ -508,6 +524,14 @@ def _command(workspace: str, args: list[str]) -> str:
     if workspace:
         return f"cd {shlex.quote(workspace)} && {command}"
     return command
+
+
+def _codex_resume_args(session_id: str, model: str) -> list[str]:
+    args = ["codex", "resume"]
+    if model:
+        args.extend(["--model", model])
+    args.append(session_id)
+    return args
 
 
 def _first_checkpoint_title(path: Path) -> str:

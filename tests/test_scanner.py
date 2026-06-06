@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from session_control.scanner import SessionScanner
 from tests.helpers import seed_claude, seed_codex, seed_continue, seed_copilot
 
@@ -37,3 +39,28 @@ def test_scanner_can_limit_provider(app_config):
     report = SessionScanner(app_config).scan(providers=("claude",))
 
     assert [session.provider for session in report.sessions] == ["claude"]
+
+
+def test_codex_resume_command_uses_recorded_model(app_config):
+    seed_codex(app_config.codex_root, model="gpt-5.4")
+
+    session = SessionScanner(app_config).scan(providers=("codex",)).sessions[0]
+
+    assert session.resume_command.endswith(
+        "codex resume --model gpt-5.4 019d016b-30c2-7992-970a-b6082c1a2723"
+    )
+    assert session.metadata["model"] == "gpt-5.4"
+    assert session.metadata["resume_model"] == "gpt-5.4"
+
+
+def test_codex_resume_model_override_wins(app_config):
+    config = replace(app_config, codex_resume_model="gpt-5.3-codex")
+    seed_codex(config.codex_root, model="gpt-5.4")
+
+    session = SessionScanner(config).scan(providers=("codex",)).sessions[0]
+
+    assert session.resume_command.endswith(
+        "codex resume --model gpt-5.3-codex 019d016b-30c2-7992-970a-b6082c1a2723"
+    )
+    assert session.metadata["model"] == "gpt-5.4"
+    assert session.metadata["resume_model"] == "gpt-5.3-codex"
