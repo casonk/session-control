@@ -14,7 +14,11 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
 
-def seed_codex(root: Path, session_id: str = "019d016b-30c2-7992-970a-b6082c1a2723") -> Path:
+def seed_codex(
+    root: Path,
+    session_id: str = "019d016b-30c2-7992-970a-b6082c1a2723",
+    model: str = "",
+) -> Path:
     write_jsonl(
         root / "session_index.jsonl",
         [
@@ -26,30 +30,42 @@ def seed_codex(root: Path, session_id: str = "019d016b-30c2-7992-970a-b6082c1a27
         ],
     )
     session_path = root / "sessions" / "2026" / "04" / "01" / f"rollout-{session_id}.jsonl"
-    write_jsonl(
-        session_path,
-        [
-            {
+    rows = [
+        {
+            "timestamp": "2026-04-01T12:00:00Z",
+            "type": "session_meta",
+            "payload": {
+                "id": session_id,
                 "timestamp": "2026-04-01T12:00:00Z",
-                "type": "session_meta",
-                "payload": {
-                    "id": session_id,
-                    "timestamp": "2026-04-01T12:00:00Z",
-                    "cwd": "/workspace/personal-finance",
-                    "originator": "codex_cli",
-                },
+                "cwd": "/workspace/personal-finance",
+                "originator": "codex_cli",
             },
+        },
+    ]
+    if model:
+        rows.append(
             {
-                "timestamp": "2026-04-01T12:05:00Z",
-                "type": "response_item",
+                "timestamp": "2026-04-01T12:01:00Z",
+                "type": "turn_context",
                 "payload": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": "Fix the downloader tests"}],
+                    "turn_id": "019d016b-30c2-7992-970a-b6082c1a2724",
+                    "cwd": "/workspace/personal-finance",
+                    "model": model,
                 },
+            }
+        )
+    rows.append(
+        {
+            "timestamp": "2026-04-01T12:05:00Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "Fix the downloader tests"}],
             },
-        ],
+        },
     )
+    write_jsonl(session_path, rows)
     return session_path
 
 

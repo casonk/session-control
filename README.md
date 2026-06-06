@@ -56,12 +56,15 @@ app outside loopback. The preferred phone path is still a loopback app behind
 
 The scanner emits provider-specific resume commands:
 
-- Codex: `codex resume <session-id>`
+- Codex: `codex resume <session-id>` or `codex resume --model <model> <session-id>` when the session records a model
 - Claude Code: `claude --resume <session-id>`
 - Continue: `cn --fork <session-id>`
 - GitHub Copilot CLI: `copilot --resume=<session-id>`
 
 When a session records a workspace, the command is prefixed with `cd <workspace>`.
+Set `SESSION_CONTROL_CODEX_RESUME_MODEL` to force a known-good Codex model for
+web-launched resumes when the global Codex default is not supported by the
+machine's current auth mode.
 
 ## Delete Behavior
 
