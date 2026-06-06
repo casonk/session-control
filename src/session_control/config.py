@@ -21,6 +21,7 @@ class AppConfig:
     max_preview_chars: int = 900
     webterm_url: str | None = None
     tmux_session: str = "pit-box"
+    codex_resume_model: str | None = None
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -40,6 +41,7 @@ class AppConfig:
             max_preview_chars=int(os.environ.get("SESSION_CONTROL_MAX_PREVIEW_CHARS", "900")),
             webterm_url=os.environ.get("SESSION_CONTROL_WEBTERM_URL") or None,
             tmux_session=os.environ.get("SESSION_CONTROL_TMUX_SESSION") or "pit-box",
+            codex_resume_model=os.environ.get("SESSION_CONTROL_CODEX_RESUME_MODEL") or None,
         )
 
     def provider_root(self, provider: str) -> Path:

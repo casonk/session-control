@@ -19,3 +19,4 @@ change how future sessions work in this repo.
 - If the repo exposes a dashboard or admin surface, keep loopback-safe defaults in the app itself and treat wider network exposure as an explicit trust-boundary decision rather than a documentation assumption.
 - Re-run repo-appropriate validation after changing generated artifacts, diagrams, workflows, or other CI-facing files so formatting and compatibility issues are caught before push.
 - AI assistant session files may contain secrets, copied logs, personal data, and private paths; tests must use minimized synthetic fixtures rather than copied real transcripts.
+- Codex web resume commands should preserve the session's recorded model or use an explicit local fallback, because inheriting the current global Codex default can break old sessions when auth-mode/model availability changes.
