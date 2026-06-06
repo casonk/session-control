@@ -16,6 +16,12 @@ from session_control.models import ScanError, ScanReport, SessionRecord
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 PROVIDERS = ("codex", "claude", "continue", "copilot")
+CLAUDE_TOKEN_FIELDS = (
+    "input_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+    "output_tokens",
+)
 
 
 class SessionScanner:
@@ -142,6 +148,12 @@ def _codex_record(
             if model:
                 metadata["model"] = model
             continue
+        if item.get("type") == "event_msg" and isinstance(item.get("payload"), dict):
+            payload = item["payload"]
+            if payload.get("type") == "token_count":
+                metadata["token_usage"] = _token_usage_metadata(payload.get("info"), timestamp)
+                metadata["rate_limits"] = _rate_limits_metadata(payload.get("rate_limits"))
+            continue
         payload = item.get("payload")
         if not isinstance(payload, dict) or payload.get("type") != "message":
             continue
@@ -192,6 +204,12 @@ def _claude_record(path: Path, max_preview_chars: int) -> SessionRecord | None:
     user_texts: list[str] = []
     message_count = 0
     permission_mode = ""
+    model = ""
+    latest_usage_at = ""
+    last_usage: dict[str, int] = {}
+    total_usage = dict.fromkeys(CLAUDE_TOKEN_FIELDS, 0)
+    service_tier = ""
+    speed = ""
 
     for item in _iter_jsonl(path):
         timestamp = _normalize_datetime(str(item.get("timestamp") or ""))
@@ -211,6 +229,20 @@ def _claude_record(path: Path, max_preview_chars: int) -> SessionRecord | None:
         role = str(item.get("type") or "")
         if role in {"user", "assistant"}:
             message_count += 1
+        if role == "assistant":
+            message = item.get("message")
+            if isinstance(message, dict):
+                model = str(message.get("model") or model)
+                usage = message.get("usage")
+                if isinstance(usage, dict):
+                    parsed_usage = _int_dict(usage)
+                    if parsed_usage:
+                        latest_usage_at = timestamp or latest_usage_at
+                        last_usage = parsed_usage
+                        for field in CLAUDE_TOKEN_FIELDS:
+                            total_usage[field] += parsed_usage.get(field, 0)
+                    service_tier = str(usage.get("service_tier") or service_tier)
+                    speed = str(usage.get("speed") or speed)
         if role == "user":
             message = item.get("message")
             if isinstance(message, dict):
@@ -222,6 +254,23 @@ def _claude_record(path: Path, max_preview_chars: int) -> SessionRecord | None:
     first_user = _best_user_text(user_texts)
     title = _title_from_text(first_user) or session_id
     workspace = workspace or _workspace_from_claude_project(path)
+    metadata: dict[str, Any] = {"permission_mode": permission_mode}
+    if model:
+        metadata["model"] = model
+    if last_usage:
+        metadata["token_usage"] = {
+            "updated_at": latest_usage_at or latest_timestamp,
+            "last": last_usage,
+            "total": {key: value for key, value in total_usage.items() if value},
+            "model": model,
+            "service_tier": service_tier,
+            "speed": speed,
+            "limits_available": False,
+            "limits_note": (
+                "Claude Code local session files record token usage, but not plan "
+                "limit windows or reset percentages."
+            ),
+        }
     return SessionRecord(
         provider="claude",
         session_id=session_id,
@@ -235,7 +284,7 @@ def _claude_record(path: Path, max_preview_chars: int) -> SessionRecord | None:
         message_count=message_count,
         preview=_truncate(_clean_text(first_user), max_preview_chars),
         resume_command=_command(workspace, ["claude", "--resume", session_id]),
-        metadata={"permission_mode": permission_mode},
+        metadata=metadata,
     )
 
 
@@ -532,6 +581,75 @@ def _codex_resume_args(session_id: str, model: str) -> list[str]:
         args.extend(["--model", model])
     args.append(session_id)
     return args
+
+
+def _token_usage_metadata(value: Any, timestamp: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "updated_at": timestamp,
+        "total": _int_dict(value.get("total_token_usage")),
+        "last": _int_dict(value.get("last_token_usage")),
+        "model_context_window": _int_or_none(value.get("model_context_window")),
+    }
+
+
+def _rate_limits_metadata(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "plan_type": str(value.get("plan_type") or ""),
+        "limit_id": str(value.get("limit_id") or ""),
+        "rate_limit_reached_type": str(value.get("rate_limit_reached_type") or ""),
+        "primary": _rate_limit_window(value.get("primary")),
+        "secondary": _rate_limit_window(value.get("secondary")),
+    }
+
+
+def _rate_limit_window(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    resets_at = _epoch_to_iso(value.get("resets_at"))
+    return {
+        "used_percent": _float_or_none(value.get("used_percent")),
+        "window_minutes": _int_or_none(value.get("window_minutes")),
+        "resets_at": resets_at,
+    }
+
+
+def _int_dict(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for key, raw in value.items():
+        parsed = _int_or_none(raw)
+        if parsed is not None:
+            result[str(key)] = parsed
+    return result
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _epoch_to_iso(value: Any) -> str:
+    seconds = _int_or_none(value)
+    if seconds is None:
+        return ""
+    try:
+        return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    except (OSError, OverflowError, ValueError):
+        return ""
 
 
 def _first_checkpoint_title(path: Path) -> str:

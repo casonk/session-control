@@ -64,3 +64,33 @@ def test_codex_resume_model_override_wins(app_config):
     )
     assert session.metadata["model"] == "gpt-5.4"
     assert session.metadata["resume_model"] == "gpt-5.3-codex"
+
+
+def test_codex_token_count_metadata_is_captured(app_config):
+    seed_codex(app_config.codex_root, token_count=True)
+
+    session = SessionScanner(app_config).scan(providers=("codex",)).sessions[0]
+
+    assert session.metadata["token_usage"]["updated_at"] == "2026-04-01T12:02:00Z"
+    assert session.metadata["token_usage"]["last"]["total_tokens"] == 24000
+    assert session.metadata["token_usage"]["total"]["total_tokens"] == 125000
+    assert session.metadata["token_usage"]["model_context_window"] == 258400
+    assert session.metadata["rate_limits"]["plan_type"] == "plus"
+    assert session.metadata["rate_limits"]["primary"]["used_percent"] == 33.0
+    assert session.metadata["rate_limits"]["primary"]["resets_at"] == "2026-04-01T13:00:00Z"
+
+
+def test_claude_token_usage_metadata_is_captured(app_config):
+    seed_claude(app_config.claude_root, token_count=True)
+
+    session = SessionScanner(app_config).scan(providers=("claude",)).sessions[0]
+
+    assert session.metadata["model"] == "claude-sonnet-4-6"
+    assert session.metadata["token_usage"]["updated_at"] == "2026-04-02T10:03:00Z"
+    assert session.metadata["token_usage"]["last"]["output_tokens"] == 34
+    assert session.metadata["token_usage"]["total"]["input_tokens"] == 12
+    assert session.metadata["token_usage"]["total"]["cache_creation_input_tokens"] == 100
+    assert session.metadata["token_usage"]["total"]["cache_read_input_tokens"] == 200
+    assert session.metadata["token_usage"]["total"]["output_tokens"] == 34
+    assert session.metadata["token_usage"]["service_tier"] == "standard"
+    assert session.metadata["token_usage"]["limits_available"] is False

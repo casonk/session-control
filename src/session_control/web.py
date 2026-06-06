@@ -22,19 +22,31 @@ from flask import (
 )
 
 from session_control.actions import SessionActionError, SessionActionService
+from session_control.claude_status import ClaudeStatusPoller
 from session_control.config import AppConfig
 from session_control.models import SessionRecord
 from session_control.scanner import PROVIDERS, SessionScanner
+
+CLAUDE_TOKEN_FIELDS = (
+    "input_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+    "output_tokens",
+)
 
 
 def create_app(
     config: AppConfig | None = None,
     scanner: SessionScanner | None = None,
     actions: SessionActionService | None = None,
+    claude_status_poller: ClaudeStatusPoller | None = None,
 ) -> Flask:
     app_config = config or AppConfig.from_env()
     app_scanner = scanner or SessionScanner(app_config)
     app_actions = actions or SessionActionService(app_config, app_scanner)
+    app_claude_status = claude_status_poller or _claude_status_poller(app_config)
+    if app_claude_status:
+        app_claude_status.start()
     app = Flask(__name__)
     app.secret_key = app_config.secret_key
 
@@ -65,6 +77,9 @@ def create_app(
             counts=counts,
             selected_provider=selected_provider,
             query=query,
+            codex_usage=_codex_usage_summary(report.sessions),
+            claude_usage=_claude_usage_summary(report.sessions),
+            claude_status=app_claude_status.snapshot() if app_claude_status else None,
             csrf_token=_csrf_token(),
             webterm_url=app_config.webterm_url,
         )
@@ -86,6 +101,22 @@ def create_app(
     def api_sessions():
         report = app_scanner.scan()
         return jsonify(report.to_dict())
+
+    @app.get("/api/claude/status")
+    def api_claude_status():
+        if not app_claude_status:
+            return jsonify(
+                {
+                    "enabled": False,
+                    "message": "Claude status polling is disabled.",
+                }
+            )
+        return jsonify(
+            {
+                "enabled": True,
+                "status": app_claude_status.snapshot(),
+            }
+        )
 
     @app.get("/healthz")
     def healthz():
@@ -153,6 +184,18 @@ def create_app(
             amount /= 1024
         return f"{amount:.1f} GB"
 
+    @app.template_filter("integer")
+    def _integer_filter(value: int | None) -> str:
+        if value is None:
+            return "unknown"
+        return f"{int(value):,}"
+
+    @app.template_filter("percent")
+    def _percent_filter(value: float | None) -> str:
+        if value is None:
+            return "unknown"
+        return f"{float(value):.0f}%"
+
     return app
 
 
@@ -172,6 +215,111 @@ def _filter_sessions(sessions: tuple[SessionRecord, ...], query: str) -> list[Se
 
 def _find_session(sessions: tuple[SessionRecord, ...], public_id: str) -> SessionRecord | None:
     return next((item for item in sessions if item.public_id == public_id), None)
+
+
+def _claude_status_poller(config: AppConfig) -> ClaudeStatusPoller | None:
+    if not config.claude_status_poll_enabled:
+        return None
+    return ClaudeStatusPoller(
+        command=config.claude_status_command,
+        interval_seconds=config.claude_status_poll_interval_seconds,
+        timeout_seconds=config.claude_status_timeout_seconds,
+    )
+
+
+def _codex_usage_summary(sessions: tuple[SessionRecord, ...]) -> dict | None:
+    latest: tuple[datetime, dict] | None = None
+    for session_record in sessions:
+        if session_record.provider != "codex":
+            continue
+        usage = session_record.metadata.get("token_usage")
+        if not isinstance(usage, dict):
+            continue
+        parsed = _parse_datetime(str(usage.get("updated_at") or session_record.updated_at))
+        if not parsed:
+            continue
+        rate_limits = session_record.metadata.get("rate_limits")
+        summary = {
+            "updated_at": usage.get("updated_at") or session_record.updated_at,
+            "last_total_tokens": _nested_int(usage, "last", "total_tokens"),
+            "session_total_tokens": _nested_int(usage, "total", "total_tokens"),
+            "context_window": usage.get("model_context_window"),
+            "plan_type": rate_limits.get("plan_type") if isinstance(rate_limits, dict) else "",
+            "primary_used_percent": _nested_value(rate_limits, "primary", "used_percent"),
+            "primary_resets_at": _nested_value(rate_limits, "primary", "resets_at"),
+            "secondary_used_percent": _nested_value(rate_limits, "secondary", "used_percent"),
+            "secondary_resets_at": _nested_value(rate_limits, "secondary", "resets_at"),
+        }
+        if latest is None or parsed > latest[0]:
+            latest = (parsed, summary)
+    return latest[1] if latest else None
+
+
+def _claude_usage_summary(sessions: tuple[SessionRecord, ...]) -> dict | None:
+    latest: tuple[datetime, dict] | None = None
+    for session_record in sessions:
+        if session_record.provider != "claude":
+            continue
+        usage = session_record.metadata.get("token_usage")
+        if not isinstance(usage, dict):
+            continue
+        parsed = _parse_datetime(str(usage.get("updated_at") or session_record.updated_at))
+        if not parsed:
+            continue
+        summary = {
+            "updated_at": usage.get("updated_at") or session_record.updated_at,
+            "last_total_tokens": _token_total(usage.get("last")),
+            "session_total_tokens": _token_total(usage.get("total")),
+            "input_tokens": _nested_int(usage, "total", "input_tokens"),
+            "cache_creation_input_tokens": _nested_int(
+                usage, "total", "cache_creation_input_tokens"
+            ),
+            "cache_read_input_tokens": _nested_int(usage, "total", "cache_read_input_tokens"),
+            "output_tokens": _nested_int(usage, "total", "output_tokens"),
+            "model": usage.get("model") or session_record.metadata.get("model") or "",
+            "service_tier": usage.get("service_tier") or "",
+            "speed": usage.get("speed") or "",
+            "limits_note": usage.get("limits_note") or "Claude limits are not recorded locally.",
+        }
+        if latest is None or parsed > latest[0]:
+            latest = (parsed, summary)
+    return latest[1] if latest else None
+
+
+def _token_total(value: object) -> int | None:
+    if not isinstance(value, dict):
+        return None
+    total = 0
+    found = False
+    for field in CLAUDE_TOKEN_FIELDS:
+        amount = value.get(field)
+        if amount is None:
+            continue
+        try:
+            total += int(amount)
+        except (TypeError, ValueError):
+            continue
+        found = True
+    return total if found else None
+
+
+def _nested_int(value: object, first: str, second: str) -> int | None:
+    nested = _nested_value(value, first, second)
+    if nested is None:
+        return None
+    try:
+        return int(nested)
+    except (TypeError, ValueError):
+        return None
+
+
+def _nested_value(value: object, first: str, second: str) -> object | None:
+    if not isinstance(value, dict):
+        return None
+    nested = value.get(first)
+    if not isinstance(nested, dict):
+        return None
+    return nested.get(second)
 
 
 def _csrf_token() -> str:

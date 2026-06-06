@@ -76,7 +76,9 @@ h2 {
 .meta,
 .workspace,
 .preview,
-.eyebrow {
+.eyebrow,
+.usage-strip span,
+.usage-strip small {
   color: var(--muted);
 }
 
@@ -144,6 +146,45 @@ h2 {
 .message.error {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.usage-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.usage-strip div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 10px 12px;
+  box-shadow: var(--shadow);
+}
+
+.usage-strip span,
+.usage-strip strong,
+.usage-strip small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.usage-strip span {
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.usage-strip strong {
+  margin-top: 3px;
+  font-size: 1.05rem;
+}
+
+.usage-strip small {
+  margin-top: 2px;
+  font-size: 0.76rem;
 }
 
 .filters {
@@ -354,7 +395,8 @@ select {
   }
 
   .filters,
-  .detail-grid {
+  .detail-grid,
+  .usage-strip {
     grid-template-columns: 1fr;
   }
 
