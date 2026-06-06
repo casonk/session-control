@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -66,17 +67,30 @@ class SessionActionService:
             [
                 "tmux",
                 "new-window",
+                "-d",
+                "-P",
+                "-F",
+                "#{window_id}",
                 "-t",
                 self.config.tmux_session,
                 "-n",
                 window_name,
-                session.resume_command,
+                _interactive_shell_command(session.resume_command),
             ],
             capture_output=True,
         )
         if result.returncode != 0:
             err = result.stderr.decode(errors="replace").strip()
             raise SessionActionError(f"Could not open tmux window: {err}")
+        window_id = result.stdout.decode(errors="replace").strip().splitlines()[-1:]
+        if window_id:
+            select = subprocess.run(
+                ["tmux", "select-window", "-t", window_id[0]],
+                capture_output=True,
+            )
+            if select.returncode != 0:
+                err = select.stderr.decode(errors="replace").strip()
+                raise SessionActionError(f"Could not select tmux window: {err}")
         return OpenResult(session=session)
 
     def delete(self, public_id: str) -> DeleteResult:
@@ -199,6 +213,21 @@ def _is_under(path: Path, root: Path) -> bool:
         return True
     except (OSError, ValueError):
         return False
+
+
+def _interactive_shell_command(command: str) -> str:
+    script = "\n".join(
+        [
+            command,
+            "status=$?",
+            'if [ "$status" -ne 0 ]; then',
+            '  printf "\\n[session-control] Resume command exited with status %s. Press Ctrl-D to close this window.\\n" "$status"',
+            "  exec bash -l",
+            "fi",
+            'exit "$status"',
+        ]
+    )
+    return "bash -lc " + shlex.quote(script)
 
 
 def _remove_codex_index_entry(path: Path, session_id: str) -> None:
