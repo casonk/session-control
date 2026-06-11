@@ -117,9 +117,39 @@
         <button class="button primary" type="submit">Filter</button>
       </form>
 
+      <section class="bulk-actions" aria-label="Selected session actions">
+        <label class="select-all">
+          <input type="checkbox" data-select-all>
+          <span>Select all visible</span>
+        </label>
+        <div class="bulk-controls">
+          <label class="permission-select">
+            <span>Codex launch permissions</span>
+            <select name="codex_permission_preset" form="bulk-open-form" aria-label="Bulk Codex launch permissions">
+              {% for preset in codex_permission_presets %}
+                <option value="{{ preset.value }}" {% if preset.value == codex_permission_default %}selected{% endif %}>
+                  {{ preset.label }}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <form id="bulk-open-form" method="post" action="{{ url_for('bulk_open_sessions') }}" data-bulk-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit" data-selected-action disabled>Open selected</button>
+          </form>
+          <form id="bulk-delete-form" method="post" action="{{ url_for('bulk_delete_sessions') }}" data-bulk-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button danger" type="submit" data-selected-action disabled>Delete selected</button>
+          </form>
+        </div>
+      </section>
+
       <section class="session-list" aria-label="Sessions">
         {% for item in sessions %}
           <article class="session">
+            <label class="session-select" aria-label="Select {{ item.title }}">
+              <input type="checkbox" value="{{ item.public_id }}" data-session-select {% if item.active %}data-active="true"{% endif %}>
+            </label>
             <div class="session-main">
               <div class="session-head">
                 <span class="provider {{ item.provider }}">{{ item.provider }}</span>
@@ -128,6 +158,9 @@
               <h2><a href="{{ url_for('detail', public_id=item.public_id) }}">{{ item.title }}</a></h2>
               <p class="meta">
                 {{ item.updated_at|datetime }} · {{ item.updated_at|age }} · {{ item.message_count }} messages · {{ item.size_bytes|bytes }}
+                {% if item.provider == 'codex' and item.metadata.permission_summary %}
+                  · permissions: {{ item.metadata.permission_summary }}
+                {% endif %}
               </p>
               {% if item.workspace %}
                 <p class="workspace">{{ item.workspace }}</p>
@@ -138,8 +171,22 @@
               <code class="command">{{ item.resume_command }}</code>
             </div>
             <div class="actions">
-              <form method="post" action="{{ url_for('open_session', public_id=item.public_id) }}">
+              <form class="open-form" method="post" action="{{ url_for('open_session', public_id=item.public_id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                {% if item.provider == 'codex' %}
+                  <label class="permission-select">
+                    <span>Launch permissions</span>
+                    <select name="codex_permission_preset" aria-label="Codex launch permissions">
+                      {% for preset in codex_permission_presets %}
+                        <option value="{{ preset.value }}"
+                          {% if preset.value == codex_permission_default %}selected{% endif %}
+                          {% if preset.value == 'recorded' and not item.metadata.permission_summary %}disabled{% endif %}>
+                          {{ preset.label }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                {% endif %}
                 <button class="button primary" type="submit">Open</button>
               </form>
               <button class="button copy" type="button" data-copy="{{ item.resume_command }}">Copy</button>

@@ -10,7 +10,7 @@ import pytest
 
 from session_control.actions import SessionActionError, SessionActionService
 from session_control.scanner import SessionScanner
-from tests.helpers import seed_continue, seed_copilot, write_json
+from tests.helpers import seed_codex, seed_continue, seed_copilot, write_json
 
 
 def test_delete_moves_continue_session_to_trash_and_updates_index(app_config):
@@ -51,6 +51,31 @@ def test_open_creates_and_selects_persistent_tmux_window(app_config, monkeypatch
     assert calls[0][-1].startswith("bash -lc ")
     assert "[session-control] Resume command exited" in calls[0][-1]
     assert calls[1] == ["tmux", "select-window", "-t", "@12"]
+
+
+def test_open_can_override_codex_permissions_for_launch(app_config, monkeypatch):
+    seed_codex(app_config.codex_root, model="gpt-5.4")
+    scanner = SessionScanner(app_config)
+    session = scanner.scan(providers=("codex",)).sessions[0]
+    calls = []
+
+    def fake_run(args, capture_output):
+        calls.append(args)
+        if args[:2] == ["tmux", "new-window"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"@12\n", stderr=b"")
+        if args[:2] == ["tmux", "select-window"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+        raise AssertionError(f"unexpected subprocess call: {args}")
+
+    monkeypatch.setattr("session_control.actions.subprocess.run", fake_run)
+
+    SessionActionService(app_config, scanner).open_in_webterm(
+        session.public_id,
+        codex_permission_preset="full-auto",
+    )
+
+    assert "--sandbox danger-full-access" in calls[0][-1]
+    assert "--ask-for-approval never" in calls[0][-1]
 
 
 def test_delete_refuses_live_copilot_lock(app_config):

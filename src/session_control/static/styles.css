@@ -90,6 +90,9 @@ h2 {
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 42px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -196,6 +199,52 @@ h2 {
   border-block: 1px solid var(--line);
 }
 
+.bulk-actions {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0 0;
+}
+
+.bulk-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bulk-controls form {
+  margin: 0;
+}
+
+.select-all,
+.session-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  color: var(--text);
+}
+
+.select-all input,
+.session-select input {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.select-all {
+  min-height: 42px;
+}
+
+.session-select {
+  align-self: start;
+  padding-top: 5px;
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -224,7 +273,7 @@ select {
 
 .session {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -325,6 +374,24 @@ select {
   margin: 0;
 }
 
+.open-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.permission-select {
+  width: min(190px, 100%);
+  font-size: 0.76rem;
+}
+
+.permission-select select {
+  min-height: 38px;
+  padding: 7px 9px;
+  font-size: 0.84rem;
+}
+
 .empty {
   border: 1px dashed var(--line);
   border-radius: 8px;
@@ -386,12 +453,18 @@ select {
 
 @media (max-width: 760px) {
   .topbar,
+  .bulk-actions,
   .session {
     grid-template-columns: 1fr;
   }
 
-  .topbar {
+  .topbar,
+  .bulk-actions {
     display: grid;
+  }
+
+  .topbar .button {
+    justify-self: start;
   }
 
   .filters,
@@ -400,14 +473,54 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .actions {
-    justify-content: stretch;
+  .usage-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
   }
 
-  .actions .button,
+  .usage-strip div {
+    padding: 7px 8px;
+  }
+
+  .usage-strip span {
+    font-size: 0.68rem;
+  }
+
+  .usage-strip strong {
+    font-size: 0.88rem;
+  }
+
+  .usage-strip small {
+    font-size: 0.68rem;
+  }
+
+  .button {
+    min-height: 34px;
+    padding: 6px 8px;
+    font-size: 0.88rem;
+  }
+
+  .actions {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .bulk-controls {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .select-all {
+    min-height: 34px;
+  }
+
   .actions form,
-  .actions form .button,
+  .actions .button,
+  .actions form .button {
+    width: auto;
+  }
+
   .filters .button {
-    width: 100%;
+    justify-self: start;
   }
 }

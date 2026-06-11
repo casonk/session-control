@@ -66,6 +66,21 @@ Set `SESSION_CONTROL_CODEX_RESUME_MODEL` to force a known-good Codex model for
 web-launched resumes when the global Codex default is not supported by the
 machine's current auth mode.
 
+Codex itself can set permission defaults in `~/.codex/config.toml`, for example
+`sandbox_mode = "danger-full-access"` and `approval_policy = "never"`, or per
+launch with `codex resume --sandbox ... --ask-for-approval ...`. For Codex
+sessions, session-control shows the last recorded sandbox/approval policy and
+adds a launch-time dropdown with these presets:
+
+- `default`: rely on Codex config files
+- `recorded`: reuse the session's last recorded sandbox and approval policy
+- `read-only`: launch with `--sandbox read-only --ask-for-approval on-request`
+- `auto`: launch with `--sandbox workspace-write --ask-for-approval on-request`
+- `full-auto`: launch with `--sandbox danger-full-access --ask-for-approval never`
+
+Set `SESSION_CONTROL_CODEX_PERMISSION_PRESET` to choose the default dropdown
+selection for web-launched Codex resumes.
+
 The Open action creates a tmux window in the configured webterm session, selects
 that window for new webterm tabs, and keeps the window open when the resume
 command exits with an error so the failure message is visible.

@@ -18,6 +18,8 @@ def seed_codex(
     root: Path,
     session_id: str = "019d016b-30c2-7992-970a-b6082c1a2723",
     model: str = "",
+    approval_policy: str = "",
+    sandbox_mode: str = "",
     token_count: bool = False,
 ) -> Path:
     write_jsonl(
@@ -43,16 +45,22 @@ def seed_codex(
             },
         },
     ]
-    if model:
+    if model or approval_policy or sandbox_mode:
+        payload = {
+            "turn_id": "019d016b-30c2-7992-970a-b6082c1a2724",
+            "cwd": "/workspace/personal-finance",
+        }
+        if model:
+            payload["model"] = model
+        if approval_policy:
+            payload["approval_policy"] = approval_policy
+        if sandbox_mode:
+            payload["sandbox_policy"] = {"type": sandbox_mode}
         rows.append(
             {
                 "timestamp": "2026-04-01T12:01:00Z",
                 "type": "turn_context",
-                "payload": {
-                    "turn_id": "019d016b-30c2-7992-970a-b6082c1a2724",
-                    "cwd": "/workspace/personal-finance",
-                    "model": model,
-                },
+                "payload": payload,
             }
         )
     if token_count:

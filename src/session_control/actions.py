@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from session_control.codex_permissions import (
+    codex_permission_args,
+    normalize_codex_permission_preset,
+)
 from session_control.config import AppConfig
 from session_control.models import ScanError, SessionRecord
 from session_control.scanner import SessionScanner
@@ -25,10 +29,22 @@ class OpenResult:
 
 
 @dataclass(frozen=True)
+class BulkOpenResult:
+    opened: tuple[OpenResult, ...]
+    errors: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class DeleteResult:
     session: SessionRecord
     moved_to: Path
     moved_count: int
+
+
+@dataclass(frozen=True)
+class BulkDeleteResult:
+    deleted: tuple[DeleteResult, ...]
+    errors: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -60,8 +76,14 @@ class SessionActionService:
         self.config = config
         self.scanner = scanner or SessionScanner(config)
 
-    def open_in_webterm(self, public_id: str) -> OpenResult:
+    def open_in_webterm(
+        self, public_id: str, *, codex_permission_preset: str | None = None
+    ) -> OpenResult:
         session = self._find(public_id)
+        command = _launch_command(
+            session,
+            codex_permission_preset=codex_permission_preset or self.config.codex_permission_preset,
+        )
         window_name = session.title[:20].strip() or session.session_id[:12]
         result = subprocess.run(
             [
@@ -75,7 +97,7 @@ class SessionActionService:
                 self.config.tmux_session,
                 "-n",
                 window_name,
-                _interactive_shell_command(session.resume_command),
+                _interactive_shell_command(command),
             ],
             capture_output=True,
         )
@@ -93,9 +115,36 @@ class SessionActionService:
                 raise SessionActionError(f"Could not select tmux window: {err}")
         return OpenResult(session=session)
 
+    def open_many_in_webterm(
+        self, public_ids: tuple[str, ...], *, codex_permission_preset: str | None = None
+    ) -> BulkOpenResult:
+        opened: list[OpenResult] = []
+        errors: list[str] = []
+        for public_id in _dedupe(public_ids):
+            try:
+                opened.append(
+                    self.open_in_webterm(
+                        public_id,
+                        codex_permission_preset=codex_permission_preset,
+                    )
+                )
+            except SessionActionError as exc:
+                errors.append(f"{public_id}: {exc}")
+        return BulkOpenResult(opened=tuple(opened), errors=tuple(errors))
+
     def delete(self, public_id: str) -> DeleteResult:
         session = self._find(public_id)
         return self._delete_session(session)
+
+    def delete_many(self, public_ids: tuple[str, ...]) -> BulkDeleteResult:
+        deleted: list[DeleteResult] = []
+        errors: list[str] = []
+        for public_id in _dedupe(public_ids):
+            try:
+                deleted.append(self.delete(public_id))
+            except SessionActionError as exc:
+                errors.append(f"{public_id}: {exc}")
+        return BulkDeleteResult(deleted=tuple(deleted), errors=tuple(errors))
 
     def prune(
         self,
@@ -184,6 +233,10 @@ def _prune_error_from_scan_error(error: ScanError) -> PruneError:
     return PruneError(provider=error.provider, message=error.message)
 
 
+def _dedupe(values: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(value for value in values if value))
+
+
 def _session_activity_at(session: SessionRecord) -> datetime | None:
     return _parse_datetime(session.updated_at) or _parse_datetime(session.created_at)
 
@@ -213,6 +266,30 @@ def _is_under(path: Path, root: Path) -> bool:
         return True
     except (OSError, ValueError):
         return False
+
+
+def _launch_command(session: SessionRecord, *, codex_permission_preset: str | None) -> str:
+    if session.provider != "codex":
+        return session.resume_command
+    model = str(session.metadata.get("resume_model") or "")
+    args = ["codex", "resume"]
+    if model:
+        args.extend(["--model", model])
+    args.extend(
+        codex_permission_args(
+            normalize_codex_permission_preset(codex_permission_preset),
+            session.metadata,
+        )
+    )
+    args.append(session.session_id)
+    return _command(session.workspace, args)
+
+
+def _command(workspace: str, args: list[str]) -> str:
+    command = " ".join(shlex.quote(part) for part in args)
+    if workspace:
+        return f"cd {shlex.quote(workspace)} && {command}"
+    return command
 
 
 def _interactive_shell_command(command: str) -> str:
