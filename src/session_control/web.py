@@ -23,6 +23,10 @@ from flask import (
 
 from session_control.actions import SessionActionError, SessionActionService
 from session_control.claude_status import ClaudeStatusPoller
+from session_control.codex_permissions import (
+    CODEX_PERMISSION_PRESET_CHOICES,
+    normalize_codex_permission_preset,
+)
 from session_control.config import AppConfig
 from session_control.models import SessionRecord
 from session_control.scanner import PROVIDERS, SessionScanner
@@ -82,6 +86,8 @@ def create_app(
             claude_status=app_claude_status.snapshot() if app_claude_status else None,
             csrf_token=_csrf_token(),
             webterm_url=app_config.webterm_url,
+            codex_permission_presets=CODEX_PERMISSION_PRESET_CHOICES,
+            codex_permission_default=app_config.codex_permission_preset,
         )
 
     @app.get("/sessions/<public_id>")
@@ -95,6 +101,8 @@ def create_app(
             session=session_record,
             csrf_token=_csrf_token(),
             webterm_url=app_config.webterm_url,
+            codex_permission_presets=CODEX_PERMISSION_PRESET_CHOICES,
+            codex_permission_default=app_config.codex_permission_preset,
         )
 
     @app.get("/api/sessions")
@@ -127,12 +135,48 @@ def create_app(
         if not app_config.webterm_url:
             flash("Web terminal URL is not configured (SESSION_CONTROL_WEBTERM_URL).", "error")
             return redirect(request.referrer or url_for("index"))
+        posted_codex_permission_preset = request.form.get("codex_permission_preset")
+        codex_permission_preset = (
+            normalize_codex_permission_preset(posted_codex_permission_preset)
+            if posted_codex_permission_preset is not None
+            else app_config.codex_permission_preset
+        )
         try:
-            app_actions.open_in_webterm(public_id)
+            app_actions.open_in_webterm(
+                public_id,
+                codex_permission_preset=codex_permission_preset,
+            )
         except SessionActionError as exc:
             flash(str(exc), "error")
             return redirect(request.referrer or url_for("index"))
         return redirect(app_config.webterm_url)
+
+    @app.post("/sessions/bulk/open")
+    def bulk_open_sessions():
+        if not app_config.webterm_url:
+            flash("Web terminal URL is not configured (SESSION_CONTROL_WEBTERM_URL).", "error")
+            return redirect(request.referrer or url_for("index"))
+        public_ids = _posted_session_ids()
+        if not public_ids:
+            flash("Select at least one session to open.", "error")
+            return redirect(request.referrer or url_for("index"))
+        posted_codex_permission_preset = request.form.get("codex_permission_preset")
+        codex_permission_preset = (
+            normalize_codex_permission_preset(posted_codex_permission_preset)
+            if posted_codex_permission_preset is not None
+            else app_config.codex_permission_preset
+        )
+        result = app_actions.open_many_in_webterm(
+            public_ids,
+            codex_permission_preset=codex_permission_preset,
+        )
+        if result.opened:
+            flash(f"Opened {len(result.opened)} selected session(s).", "success")
+        for error in result.errors:
+            flash(error, "error")
+        if result.opened:
+            return redirect(app_config.webterm_url)
+        return redirect(request.referrer or url_for("index"))
 
     @app.post("/sessions/<public_id>/delete")
     def delete_session(public_id: str):
@@ -146,6 +190,24 @@ def create_app(
             f"{result.session.session_id}.",
             "success",
         )
+        return redirect(url_for("index"))
+
+    @app.post("/sessions/bulk/delete")
+    def bulk_delete_sessions():
+        public_ids = _posted_session_ids()
+        if not public_ids:
+            flash("Select at least one session to delete.", "error")
+            return redirect(request.referrer or url_for("index"))
+        result = app_actions.delete_many(public_ids)
+        if result.deleted:
+            moved_count = sum(item.moved_count for item in result.deleted)
+            flash(
+                f"Deleted {len(result.deleted)} selected session(s), moving "
+                f"{moved_count} item(s) to trash.",
+                "success",
+            )
+        for error in result.errors:
+            flash(error, "error")
         return redirect(url_for("index"))
 
     @app.template_filter("datetime")
@@ -215,6 +277,10 @@ def _filter_sessions(sessions: tuple[SessionRecord, ...], query: str) -> list[Se
 
 def _find_session(sessions: tuple[SessionRecord, ...], public_id: str) -> SessionRecord | None:
     return next((item for item in sessions if item.public_id == public_id), None)
+
+
+def _posted_session_ids() -> tuple[str, ...]:
+    return tuple(dict.fromkeys(value for value in request.form.getlist("session_id") if value))
 
 
 def _claude_status_poller(config: AppConfig) -> ClaudeStatusPoller | None:

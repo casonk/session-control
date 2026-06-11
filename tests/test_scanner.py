@@ -66,6 +66,51 @@ def test_codex_resume_model_override_wins(app_config):
     assert session.metadata["resume_model"] == "gpt-5.3-codex"
 
 
+def test_codex_permission_metadata_is_captured(app_config):
+    seed_codex(
+        app_config.codex_root,
+        approval_policy="on-request",
+        sandbox_mode="workspace-write",
+    )
+
+    session = SessionScanner(app_config).scan(providers=("codex",)).sessions[0]
+
+    assert session.metadata["approval_policy"] == "on-request"
+    assert session.metadata["sandbox_mode"] == "workspace-write"
+    assert session.metadata["permission_summary"] == "workspace-write / on-request"
+
+
+def test_codex_resume_permission_preset_can_use_recorded_values(app_config):
+    config = replace(app_config, codex_permission_preset="recorded")
+    seed_codex(
+        config.codex_root,
+        model="gpt-5.4",
+        approval_policy="never",
+        sandbox_mode="danger-full-access",
+    )
+
+    session = SessionScanner(config).scan(providers=("codex",)).sessions[0]
+
+    assert session.resume_command.endswith(
+        "codex resume --model gpt-5.4 --sandbox danger-full-access "
+        "--ask-for-approval never 019d016b-30c2-7992-970a-b6082c1a2723"
+    )
+    assert session.metadata["resume_permission_preset"] == "recorded"
+
+
+def test_codex_resume_permission_preset_can_force_full_auto(app_config):
+    config = replace(app_config, codex_permission_preset="full-auto")
+    seed_codex(config.codex_root, model="gpt-5.4")
+
+    session = SessionScanner(config).scan(providers=("codex",)).sessions[0]
+
+    assert session.resume_command.endswith(
+        "codex resume --model gpt-5.4 --sandbox danger-full-access "
+        "--ask-for-approval never 019d016b-30c2-7992-970a-b6082c1a2723"
+    )
+    assert session.metadata["resume_permission_preset"] == "full-auto"
+
+
 def test_codex_token_count_metadata_is_captured(app_config):
     seed_codex(app_config.codex_root, token_count=True)
 
