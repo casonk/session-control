@@ -8,6 +8,8 @@ import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
+from session_control.codex_permissions import normalize_codex_permission_preset
+
 
 @dataclass(frozen=True)
 class AppConfig:
@@ -23,6 +25,7 @@ class AppConfig:
     webterm_url: str | None = None
     tmux_session: str = "pit-box"
     codex_resume_model: str | None = None
+    codex_permission_preset: str = "default"
     claude_status_poll_enabled: bool = False
     claude_status_command: tuple[str, ...] = ("claude", "auth", "status", "--json")
     claude_status_poll_interval_seconds: int = 300
@@ -47,6 +50,9 @@ class AppConfig:
             webterm_url=os.environ.get("SESSION_CONTROL_WEBTERM_URL") or None,
             tmux_session=os.environ.get("SESSION_CONTROL_TMUX_SESSION") or "pit-box",
             codex_resume_model=os.environ.get("SESSION_CONTROL_CODEX_RESUME_MODEL") or None,
+            codex_permission_preset=normalize_codex_permission_preset(
+                os.environ.get("SESSION_CONTROL_CODEX_PERMISSION_PRESET")
+            ),
             claude_status_poll_enabled=_truthy(
                 os.environ.get("SESSION_CONTROL_CLAUDE_STATUS_POLL")
             ),

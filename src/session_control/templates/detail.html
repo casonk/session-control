@@ -43,6 +43,9 @@
             <div><dt>Updated</dt><dd>{{ session.updated_at|datetime }}</dd></div>
             <div><dt>Messages</dt><dd>{{ session.message_count }}</dd></div>
             <div><dt>Size</dt><dd>{{ session.size_bytes|bytes }}</dd></div>
+            {% if session.provider == 'codex' %}
+              <div><dt>Permissions</dt><dd>{{ session.metadata.permission_summary or 'not recorded' }}</dd></div>
+            {% endif %}
           </dl>
         </div>
       </section>
@@ -64,8 +67,22 @@
       </section>
 
       <div class="delete-row" style="display:flex;gap:8px;align-items:center;">
-        <form method="post" action="{{ url_for('open_session', public_id=session.public_id) }}">
+        <form class="open-form" method="post" action="{{ url_for('open_session', public_id=session.public_id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          {% if session.provider == 'codex' %}
+            <label class="permission-select">
+              <span>Launch permissions</span>
+              <select name="codex_permission_preset" aria-label="Codex launch permissions">
+                {% for preset in codex_permission_presets %}
+                  <option value="{{ preset.value }}"
+                    {% if preset.value == codex_permission_default %}selected{% endif %}
+                    {% if preset.value == 'recorded' and not session.metadata.permission_summary %}disabled{% endif %}>
+                    {{ preset.label }}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
           <button class="button primary" type="submit">Open in Web Terminal</button>
         </form>
         <form method="post" action="{{ url_for('delete_session', public_id=session.public_id) }}">

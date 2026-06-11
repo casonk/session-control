@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from session_control.codex_permissions import (
+    codex_permission_args,
+    codex_permission_summary,
+    normalize_codex_permission_preset,
+)
 from session_control.config import AppConfig
 from session_control.models import ScanError, ScanReport, SessionRecord
 
@@ -64,6 +69,7 @@ class SessionScanner:
                     index,
                     self.config.max_preview_chars,
                     self.config.codex_resume_model,
+                    self.config.codex_permission_preset,
                 )
                 if record:
                     records.append(record)
@@ -118,6 +124,7 @@ def _codex_record(
     index: dict[str, dict[str, Any]],
     max_preview_chars: int,
     codex_resume_model: str | None,
+    codex_permission_preset: str,
 ) -> SessionRecord | None:
     metadata: dict[str, Any] = {}
     user_texts: list[str] = []
@@ -147,6 +154,12 @@ def _codex_record(
             model = str(payload.get("model") or "")
             if model:
                 metadata["model"] = model
+            approval_policy = str(payload.get("approval_policy") or "")
+            if approval_policy:
+                metadata["approval_policy"] = approval_policy
+            sandbox_mode = _codex_sandbox_mode(payload.get("sandbox_policy"))
+            if sandbox_mode:
+                metadata["sandbox_mode"] = sandbox_mode
             continue
         if item.get("type") == "event_msg" and isinstance(item.get("payload"), dict):
             payload = item["payload"]
@@ -179,6 +192,9 @@ def _codex_record(
     resume_model = codex_resume_model or str(metadata.get("model") or "")
     if resume_model:
         metadata["resume_model"] = resume_model
+    metadata["permission_summary"] = codex_permission_summary(metadata)
+    normalized_permission_preset = normalize_codex_permission_preset(codex_permission_preset)
+    metadata["resume_permission_preset"] = normalized_permission_preset
     return SessionRecord(
         provider="codex",
         session_id=session_id,
@@ -191,7 +207,14 @@ def _codex_record(
         size_bytes=_path_size(path),
         message_count=message_count,
         preview=_truncate(_clean_text(first_user), max_preview_chars),
-        resume_command=_command(workspace, _codex_resume_args(session_id, resume_model)),
+        resume_command=_command(
+            workspace,
+            _codex_resume_args(
+                session_id,
+                resume_model,
+                codex_permission_args(normalized_permission_preset, metadata),
+            ),
+        ),
         metadata=metadata,
     )
 
@@ -575,12 +598,21 @@ def _command(workspace: str, args: list[str]) -> str:
     return command
 
 
-def _codex_resume_args(session_id: str, model: str) -> list[str]:
+def _codex_resume_args(
+    session_id: str, model: str, permission_args: list[str] | None = None
+) -> list[str]:
     args = ["codex", "resume"]
     if model:
         args.extend(["--model", model])
+    args.extend(permission_args or [])
     args.append(session_id)
     return args
+
+
+def _codex_sandbox_mode(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("type") or value.get("kind") or "")
+    return str(value or "")
 
 
 def _token_usage_metadata(value: Any, timestamp: str) -> dict[str, Any]:
