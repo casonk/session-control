@@ -35,6 +35,8 @@ def test_open_creates_and_selects_persistent_tmux_window(app_config, monkeypatch
 
     def fake_run(args, capture_output):
         calls.append(args)
+        if args[:2] == ["tmux", "has-session"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "new-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"@12\n", stderr=b"")
         if args[:2] == ["tmux", "select-window"]:
@@ -46,11 +48,12 @@ def test_open_creates_and_selects_persistent_tmux_window(app_config, monkeypatch
     result = SessionActionService(app_config, scanner).open_in_webterm(session.public_id)
 
     assert result.session == session
-    assert calls[0][:7] == ["tmux", "new-window", "-d", "-P", "-F", "#{window_id}", "-t"]
-    assert calls[0][7] == app_config.tmux_session
-    assert calls[0][-1].startswith("bash -lc ")
-    assert "[session-control] Resume command exited" in calls[0][-1]
-    assert calls[1] == ["tmux", "select-window", "-t", "@12"]
+    assert calls[0] == ["tmux", "has-session", "-t", app_config.tmux_session]
+    assert calls[1][:7] == ["tmux", "new-window", "-d", "-P", "-F", "#{window_id}", "-t"]
+    assert calls[1][7] == app_config.tmux_session
+    assert calls[1][-1].startswith("bash -lc ")
+    assert "[session-control] Resume command exited" in calls[1][-1]
+    assert calls[2] == ["tmux", "select-window", "-t", "@12"]
 
 
 def test_open_can_override_codex_permissions_for_launch(app_config, monkeypatch):
@@ -61,6 +64,8 @@ def test_open_can_override_codex_permissions_for_launch(app_config, monkeypatch)
 
     def fake_run(args, capture_output):
         calls.append(args)
+        if args[:2] == ["tmux", "has-session"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "new-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"@12\n", stderr=b"")
         if args[:2] == ["tmux", "select-window"]:
@@ -74,8 +79,39 @@ def test_open_can_override_codex_permissions_for_launch(app_config, monkeypatch)
         codex_permission_preset="full-auto",
     )
 
-    assert "--sandbox danger-full-access" in calls[0][-1]
-    assert "--ask-for-approval never" in calls[0][-1]
+    assert "--sandbox danger-full-access" in calls[1][-1]
+    assert "--ask-for-approval never" in calls[1][-1]
+
+
+def test_open_creates_tmux_session_when_none_running(app_config, monkeypatch):
+    seed_continue(app_config.continue_root)
+    scanner = SessionScanner(app_config)
+    session = scanner.scan(providers=("continue",)).sessions[0]
+    calls = []
+
+    def fake_run(args, capture_output):
+        calls.append(args)
+        if args[:2] == ["tmux", "has-session"]:
+            return subprocess.CompletedProcess(
+                args, 1, stdout=b"", stderr=b"no server running on /tmp/tmux-1000/default"
+            )
+        if args[:2] == ["tmux", "new-session"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+        if args[:2] == ["tmux", "new-window"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"@1\n", stderr=b"")
+        if args[:2] == ["tmux", "select-window"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+        raise AssertionError(f"unexpected subprocess call: {args}")
+
+    monkeypatch.setattr("session_control.actions.subprocess.run", fake_run)
+
+    result = SessionActionService(app_config, scanner).open_in_webterm(session.public_id)
+
+    assert result.session == session
+    assert calls[0] == ["tmux", "has-session", "-t", app_config.tmux_session]
+    assert calls[1] == ["tmux", "new-session", "-d", "-s", app_config.tmux_session]
+    assert calls[2][:2] == ["tmux", "new-window"]
+    assert calls[3] == ["tmux", "select-window", "-t", "@1"]
 
 
 def test_delete_refuses_live_copilot_lock(app_config):
