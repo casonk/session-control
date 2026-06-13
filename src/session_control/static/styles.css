@@ -219,6 +219,22 @@ h2 {
   margin: 0;
 }
 
+.bulk-controls.floating {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 12px rgb(16 24 40 / 14%);
+  padding: 10px max(14px, calc((100vw - 1120px) / 2 + 14px));
+}
+
+.shell.has-selection {
+  padding-bottom: 72px;
+}
+
 .select-all,
 .session-select {
   display: inline-flex;
@@ -364,10 +380,9 @@ select {
 
 .actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
-  align-content: start;
-  justify-content: flex-end;
+  align-items: flex-end;
 }
 
 .actions form {
@@ -379,6 +394,7 @@ select {
   flex-wrap: wrap;
   gap: 8px;
   align-items: end;
+  justify-content: flex-end;
 }
 
 .permission-select {
@@ -501,7 +517,7 @@ select {
   }
 
   .actions {
-    justify-content: flex-start;
+    align-items: flex-start;
     gap: 6px;
   }
 
@@ -512,12 +528,6 @@ select {
 
   .select-all {
     min-height: 34px;
-  }
-
-  .actions form,
-  .actions .button,
-  .actions form .button {
-    width: auto;
   }
 
   .filters .button {
