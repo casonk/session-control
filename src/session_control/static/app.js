@@ -26,6 +26,10 @@ function syncBulkControls() {
     button.disabled = selected.length === 0;
   });
 
+  const hasSelection = selected.length > 0;
+  document.querySelector(".bulk-controls")?.classList.toggle("floating", hasSelection);
+  document.querySelector(".shell")?.classList.toggle("has-selection", hasSelection);
+
   const selectAll = document.querySelector("[data-select-all]");
   if (!selectAll) {
     return;

@@ -85,6 +85,7 @@ class SessionActionService:
             codex_permission_preset=codex_permission_preset or self.config.codex_permission_preset,
         )
         window_name = session.title[:20].strip() or session.session_id[:12]
+        self._ensure_tmux_session()
         result = subprocess.run(
             [
                 "tmux",
@@ -214,6 +215,21 @@ class SessionActionService:
                 provider_root / "sessions" / "sessions.json", session.session_id
             )
         return DeleteResult(session=session, moved_to=batch_dir, moved_count=moved)
+
+    def _ensure_tmux_session(self) -> None:
+        check = subprocess.run(
+            ["tmux", "has-session", "-t", self.config.tmux_session],
+            capture_output=True,
+        )
+        if check.returncode == 0:
+            return
+        create = subprocess.run(
+            ["tmux", "new-session", "-d", "-s", self.config.tmux_session],
+            capture_output=True,
+        )
+        if create.returncode != 0:
+            err = create.stderr.decode(errors="replace").strip()
+            raise SessionActionError(f"Could not create tmux session: {err}")
 
     def _find(self, public_id: str) -> SessionRecord:
         for session in self.scanner.scan().sessions:
