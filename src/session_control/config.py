@@ -23,7 +23,7 @@ class AppConfig:
     allowed_origins: tuple[str, ...] = ()
     max_preview_chars: int = 900
     webterm_url: str | None = None
-    tmux_session: str = "pit-box"
+    tmux_session: str = "main"
     codex_resume_model: str | None = None
     codex_permission_preset: str = "default"
     claude_status_poll_enabled: bool = False
@@ -48,7 +48,7 @@ class AppConfig:
             allowed_origins=_split_csv(os.environ.get("SESSION_CONTROL_ALLOWED_ORIGINS", "")),
             max_preview_chars=int(os.environ.get("SESSION_CONTROL_MAX_PREVIEW_CHARS", "900")),
             webterm_url=os.environ.get("SESSION_CONTROL_WEBTERM_URL") or None,
-            tmux_session=os.environ.get("SESSION_CONTROL_TMUX_SESSION") or "pit-box",
+            tmux_session=os.environ.get("SESSION_CONTROL_TMUX_SESSION") or "main",
             codex_resume_model=os.environ.get("SESSION_CONTROL_CODEX_RESUME_MODEL") or None,
             codex_permission_preset=normalize_codex_permission_preset(
                 os.environ.get("SESSION_CONTROL_CODEX_PERMISSION_PRESET")
