@@ -57,6 +57,21 @@
         </section>
       {% endif %}
 
+      {% if session.provider == 'claude' and session.metadata.token_usage %}
+        {% set tu = session.metadata.token_usage %}
+        <section class="detail-block">
+          <h2>Token Usage</h2>
+          <dl class="facts">
+            <div><dt>Last turn</dt><dd>{{ tu.last|token_total }}</dd></div>
+            <div><dt>Session total</dt><dd>{{ tu.total|token_total }}</dd></div>
+            <div><dt>Output</dt><dd>{{ tu.total.output_tokens|integer }}</dd></div>
+            <div><dt>Input</dt><dd>{{ tu.total.input_tokens|integer }}</dd></div>
+            <div><dt>Cache read</dt><dd>{{ tu.total.cache_read_input_tokens|integer }}</dd></div>
+            <div><dt>Cache created</dt><dd>{{ tu.total.cache_creation_input_tokens|integer }}</dd></div>
+          </dl>
+        </section>
+      {% endif %}
+
       <section class="detail-block">
         <h2>Files</h2>
         <ul class="files">
@@ -66,23 +81,23 @@
         </ul>
       </section>
 
-      <div class="delete-row" style="display:flex;gap:8px;align-items:center;">
-        <form class="open-form" method="post" action="{{ url_for('open_session', public_id=session.public_id) }}">
+      <div class="delete-row" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
+        {% if session.provider == 'codex' %}
+          <label class="permission-select">
+            <span>Launch permissions</span>
+            <select name="codex_permission_preset" form="open-form-detail" aria-label="Codex launch permissions">
+              {% for preset in codex_permission_presets %}
+                <option value="{{ preset.value }}"
+                  {% if preset.value == codex_permission_default %}selected{% endif %}
+                  {% if preset.value == 'recorded' and not session.metadata.permission_summary %}disabled{% endif %}>
+                  {{ preset.label }}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+        {% endif %}
+        <form id="open-form-detail" method="post" action="{{ url_for('open_session', public_id=session.public_id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          {% if session.provider == 'codex' %}
-            <label class="permission-select">
-              <span>Launch permissions</span>
-              <select name="codex_permission_preset" aria-label="Codex launch permissions">
-                {% for preset in codex_permission_presets %}
-                  <option value="{{ preset.value }}"
-                    {% if preset.value == codex_permission_default %}selected{% endif %}
-                    {% if preset.value == 'recorded' and not session.metadata.permission_summary %}disabled{% endif %}>
-                    {{ preset.label }}
-                  </option>
-                {% endfor %}
-              </select>
-            </label>
-          {% endif %}
           <button class="button primary" type="submit">Open in Web Terminal</button>
         </form>
         <form method="post" action="{{ url_for('delete_session', public_id=session.public_id) }}">
