@@ -59,24 +59,41 @@
             <strong>{{ claude_usage.cache_read_input_tokens|integer if claude_usage else 'unknown' }} read</strong>
             <small>{{ claude_usage.cache_creation_input_tokens|integer if claude_usage else 'unknown' }} created</small>
           </div>
-          <div>
-            <span>Claude limits</span>
-            {% if claude_status %}
-              <strong>{{ 'captured' if claude_status.limits_available else 'not exposed' }}</strong>
-              <small>
-                {% if claude_status.subscription_type %}
-                  {{ claude_status.subscription_type }}
-                {% elif claude_status.ok %}
-                  authenticated
-                {% else %}
-                  {{ claude_status.message }}
-                {% endif %}
-              </small>
-            {% else %}
-              <strong>not recorded</strong>
-              <small>local files expose usage only</small>
+          {% if claude_status and claude_status.usage_limits %}
+            {% set prim = claude_status.usage_limits.primary %}
+            <div>
+              <span>{{ claude_status.subscription_type or 'subscription' }} session</span>
+              <strong>{{ prim.used_percent|percent }}</strong>
+              {% if prim.resets_at %}<small>resets {{ prim.resets_at|datetime }}</small>{% endif %}
+            </div>
+            {% set sec = claude_status.usage_limits.secondary %}
+            {% if sec %}
+              <div>
+                <span>7d</span>
+                <strong>{{ sec.used_percent|percent }}</strong>
+                {% if sec.resets_at %}<small>resets {{ sec.resets_at|datetime }}</small>{% endif %}
+              </div>
             {% endif %}
-          </div>
+          {% else %}
+            <div>
+              <span>Claude limits</span>
+              {% if claude_status %}
+                <strong>{{ 'captured' if claude_status.limits_available else 'not exposed' }}</strong>
+                <small>
+                  {% if claude_status.subscription_type %}
+                    {{ claude_status.subscription_type }}
+                  {% elif claude_status.ok %}
+                    authenticated
+                  {% else %}
+                    {{ claude_status.message }}
+                  {% endif %}
+                </small>
+              {% else %}
+                <strong>not recorded</strong>
+                <small>local files expose usage only</small>
+              {% endif %}
+            </div>
+          {% endif %}
         </section>
       {% endif %}
 
@@ -158,6 +175,9 @@
               <h2><a href="{{ url_for('detail', public_id=item.public_id) }}">{{ item.title }}</a></h2>
               <p class="meta">
                 {{ item.updated_at|datetime }} · {{ item.updated_at|age }} · {{ item.message_count }} messages · {{ item.size_bytes|bytes }}
+                {% if item.provider == 'claude' and item.metadata.token_usage %}
+                  · {{ item.metadata.token_usage.total|token_total }} tokens
+                {% endif %}
                 {% if item.provider == 'codex' and item.metadata.permission_summary %}
                   · permissions: {{ item.metadata.permission_summary }}
                 {% endif %}
@@ -171,22 +191,22 @@
               <code class="command">{{ item.resume_command }}</code>
             </div>
             <div class="actions">
-              <form class="open-form" method="post" action="{{ url_for('open_session', public_id=item.public_id) }}">
+              {% if item.provider == 'codex' %}
+                <label class="permission-select">
+                  <span>Launch permissions</span>
+                  <select name="codex_permission_preset" form="open-form-{{ item.public_id }}" aria-label="Codex launch permissions">
+                    {% for preset in codex_permission_presets %}
+                      <option value="{{ preset.value }}"
+                        {% if preset.value == codex_permission_default %}selected{% endif %}
+                        {% if preset.value == 'recorded' and not item.metadata.permission_summary %}disabled{% endif %}>
+                        {{ preset.label }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </label>
+              {% endif %}
+              <form id="open-form-{{ item.public_id }}" method="post" action="{{ url_for('open_session', public_id=item.public_id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                {% if item.provider == 'codex' %}
-                  <label class="permission-select">
-                    <span>Launch permissions</span>
-                    <select name="codex_permission_preset" aria-label="Codex launch permissions">
-                      {% for preset in codex_permission_presets %}
-                        <option value="{{ preset.value }}"
-                          {% if preset.value == codex_permission_default %}selected{% endif %}
-                          {% if preset.value == 'recorded' and not item.metadata.permission_summary %}disabled{% endif %}>
-                          {{ preset.label }}
-                        </option>
-                      {% endfor %}
-                    </select>
-                  </label>
-                {% endif %}
                 <button class="button primary" type="submit">Open</button>
               </form>
               <button class="button copy" type="button" data-copy="{{ item.resume_command }}">Copy</button>

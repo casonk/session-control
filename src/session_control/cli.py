@@ -10,8 +10,13 @@ import re
 from datetime import timedelta
 from pathlib import Path
 
-from session_control.actions import PruneResult, SessionActionService
+from session_control.actions import (
+    DeduplicateResult,
+    PruneResult,
+    SessionActionService,
+)
 from session_control.config import AppConfig
+from session_control.dedup import DEFAULT_SIMILARITY
 from session_control.scanner import PROVIDERS, SessionScanner
 from session_control.web import create_app
 
@@ -116,6 +121,29 @@ def _build_parser() -> argparse.ArgumentParser:
     prune.add_argument("--dry-run", action="store_true", help="show what would be pruned")
     prune.add_argument("--json", action="store_true", help="print the prune report as JSON")
 
+    dedup = subparsers.add_parser("deduplicate", help="merge duplicate sessions in an age window")
+    dedup.add_argument(
+        "--min-age",
+        type=_parse_duration,
+        default=_parse_duration(os.environ.get("SESSION_CONTROL_DEDUP_MIN_AGE", "50d")),
+        help="lower bound of the age window (default: 50d)",
+    )
+    dedup.add_argument(
+        "--max-age",
+        type=_parse_duration,
+        default=_parse_duration(os.environ.get("SESSION_CONTROL_DEDUP_MAX_AGE", "100d")),
+        help="upper bound of the age window (default: 100d)",
+    )
+    dedup.add_argument(
+        "--similarity",
+        type=float,
+        default=float(os.environ.get("SESSION_CONTROL_DEDUP_SIMILARITY", str(DEFAULT_SIMILARITY))),
+        help=f"fuzzy-match threshold 0–1 (default: {DEFAULT_SIMILARITY})",
+    )
+    dedup.add_argument("--provider", choices=PROVIDERS, action="append", help="limit provider")
+    dedup.add_argument("--dry-run", action="store_true", help="show what would be merged")
+    dedup.add_argument("--json", action="store_true", help="print the report as JSON")
+
     web = subparsers.add_parser("web", help="run the private web UI")
     web.add_argument("--host", default=os.environ.get("SESSION_CONTROL_HOST", "127.0.0.1"))
     web.add_argument(
@@ -151,6 +179,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"WARN {error.provider}: {error.message}")
         return 0
 
+    if args.command == "deduplicate":
+        providers = tuple(args.provider) if args.provider else None
+        result = SessionActionService(config).deduplicate(
+            args.min_age,
+            args.max_age,
+            similarity=args.similarity,
+            providers=providers,
+            dry_run=args.dry_run,
+        )
+        if args.json:
+            print(json.dumps(_dedup_result_to_dict(result), indent=2))
+        else:
+            _print_dedup_result(result)
+        return 1 if result.errors else 0
+
     if args.command == "prune":
         providers = tuple(args.provider) if args.provider else None
         result = SessionActionService(config).prune(
@@ -166,6 +209,49 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.error(f"unknown command: {args.command}")
     return 2
+
+
+def _print_dedup_result(result: DeduplicateResult) -> None:
+    window = f"{_duration_days(result.min_age)}–{_duration_days(result.max_age)}"
+    action = "Would merge" if result.dry_run else "Merged"
+    group_count = len(result.groups) if result.dry_run else len(result.merged)
+    print(f"{action} {group_count} duplicate group(s) in age window {window}.")
+    if result.dry_run:
+        for group in result.groups:
+            print(f"  GROUP ({len(group)} sessions, provider={group[0].provider}):")
+            for s in sorted(group, key=lambda x: x.updated_at or x.created_at or ""):
+                print(f"    {s.updated_at[:10]}  {s.title[:60]}")
+    else:
+        for merge in result.merged:
+            absorbed_ids = ", ".join(s.session_id[:8] for s in merge.absorbed)
+            print(
+                f"  MERGED  kept={merge.kept.session_id[:8]}  "
+                f"absorbed=[{absorbed_ids}]  -> {merge.moved_to}"
+            )
+    for error in result.errors:
+        print(f"  ERROR   {error}")
+
+
+def _dedup_result_to_dict(result: DeduplicateResult) -> dict:
+    return {
+        "min_age": _duration_days(result.min_age),
+        "max_age": _duration_days(result.max_age),
+        "dry_run": result.dry_run,
+        "scanned_count": result.scanned_count,
+        "group_count": len(result.groups),
+        "merged_count": len(result.merged),
+        "error_count": len(result.errors),
+        "groups": [[s.to_dict() for s in group] for group in result.groups],
+        "merged": [
+            {
+                "kept": m.kept.to_dict(),
+                "absorbed": [s.to_dict() for s in m.absorbed],
+                "moved_to": str(m.moved_to),
+            }
+            for m in result.merged
+        ],
+        "errors": list(result.errors),
+    }
 
 
 def _print_prune_result(result: PruneResult, older_than: timedelta) -> None:
