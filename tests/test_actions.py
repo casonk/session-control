@@ -38,7 +38,7 @@ def test_open_creates_and_selects_persistent_tmux_window(app_config, monkeypatch
         if args[:2] == ["tmux", "has-session"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "new-window"]:
-            return subprocess.CompletedProcess(args, 0, stdout=b"@12\n", stderr=b"")
+            return subprocess.CompletedProcess(args, 0, stdout=b"@12\t12\n", stderr=b"")
         if args[:2] == ["tmux", "select-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         raise AssertionError(f"unexpected subprocess call: {args}")
@@ -48,8 +48,17 @@ def test_open_creates_and_selects_persistent_tmux_window(app_config, monkeypatch
     result = SessionActionService(app_config, scanner).open_in_webterm(session.public_id)
 
     assert result.session == session
+    assert result.window_index == 12
     assert calls[0] == ["tmux", "has-session", "-t", app_config.tmux_session]
-    assert calls[1][:7] == ["tmux", "new-window", "-d", "-P", "-F", "#{window_id}", "-t"]
+    assert calls[1][:7] == [
+        "tmux",
+        "new-window",
+        "-d",
+        "-P",
+        "-F",
+        "#{window_id}\t#{window_index}",
+        "-t",
+    ]
     assert calls[1][7] == app_config.tmux_session
     assert calls[1][-1].startswith("bash -lc ")
     assert "[session-control] Resume command exited" in calls[1][-1]
@@ -98,7 +107,7 @@ def test_open_creates_tmux_session_when_none_running(app_config, monkeypatch):
         if args[:2] == ["tmux", "new-session"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "new-window"]:
-            return subprocess.CompletedProcess(args, 0, stdout=b"@1\n", stderr=b"")
+            return subprocess.CompletedProcess(args, 0, stdout=b"@1\t1\n", stderr=b"")
         if args[:2] == ["tmux", "select-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         raise AssertionError(f"unexpected subprocess call: {args}")

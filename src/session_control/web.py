@@ -143,14 +143,14 @@ def create_app(
             else app_config.codex_permission_preset
         )
         try:
-            app_actions.open_in_webterm(
+            result = app_actions.open_in_webterm(
                 public_id,
                 codex_permission_preset=codex_permission_preset,
             )
         except SessionActionError as exc:
             flash(str(exc), "error")
             return redirect(request.referrer or url_for("index"))
-        return redirect(app_config.webterm_url)
+        return redirect(_term_url(app_config.webterm_url, getattr(result, "window_index", None)))
 
     @app.post("/sessions/bulk/open")
     def bulk_open_sessions():
@@ -176,7 +176,8 @@ def create_app(
         for error in result.errors:
             flash(error, "error")
         if result.opened:
-            return redirect(app_config.webterm_url)
+            last_index = result.opened[-1].window_index if result.opened else None
+            return redirect(_term_url(app_config.webterm_url, last_index))
         return redirect(request.referrer or url_for("index"))
 
     @app.post("/sessions/<public_id>/delete")
@@ -468,6 +469,13 @@ def _is_loopback_host(host: str) -> bool:
         return ipaddress.ip_address(candidate).is_loopback
     except ValueError:
         return False
+
+
+def _term_url(webterm_url: str, window_index: int | None = None) -> str:
+    base = webterm_url.rstrip("/") + "/term"
+    if window_index is not None:
+        return f"{base}?window={window_index}"
+    return base
 
 
 def _normalize_origin(value: str) -> str:
