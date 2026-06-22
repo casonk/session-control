@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shlex
 import shutil
@@ -27,6 +28,7 @@ class SessionActionError(RuntimeError):
 @dataclass(frozen=True)
 class OpenResult:
     session: SessionRecord
+    window_index: int | None = None
 
 
 @dataclass(frozen=True)
@@ -112,7 +114,7 @@ class SessionActionService:
                 "-d",
                 "-P",
                 "-F",
-                "#{window_id}",
+                "#{window_id}\t#{window_index}",
                 "-t",
                 self.config.tmux_session,
                 "-n",
@@ -124,16 +126,21 @@ class SessionActionService:
         if result.returncode != 0:
             err = result.stderr.decode(errors="replace").strip()
             raise SessionActionError(f"Could not open tmux window: {err}")
-        window_id = result.stdout.decode(errors="replace").strip().splitlines()[-1:]
-        if window_id:
+        window_index: int | None = None
+        output_line = result.stdout.decode(errors="replace").strip().splitlines()[-1:]
+        if output_line:
+            parts = output_line[0].split("\t", 1)
             select = subprocess.run(
-                ["tmux", "select-window", "-t", window_id[0]],
+                ["tmux", "select-window", "-t", parts[0]],
                 capture_output=True,
             )
             if select.returncode != 0:
                 err = select.stderr.decode(errors="replace").strip()
                 raise SessionActionError(f"Could not select tmux window: {err}")
-        return OpenResult(session=session)
+            if len(parts) > 1:
+                with contextlib.suppress(ValueError):
+                    window_index = int(parts[1])
+        return OpenResult(session=session, window_index=window_index)
 
     def open_many_in_webterm(
         self, public_ids: tuple[str, ...], *, codex_permission_preset: str | None = None
@@ -161,7 +168,7 @@ class SessionActionService:
                         "-d",
                         "-P",
                         "-F",
-                        "#{window_id}",
+                        "#{window_id}\t#{window_index}",
                         "-t",
                         self.config.tmux_session,
                         "-n",
@@ -173,16 +180,21 @@ class SessionActionService:
                 if result.returncode != 0:
                     err = result.stderr.decode(errors="replace").strip()
                     raise SessionActionError(f"Could not open tmux window: {err}")
-                window_id = result.stdout.decode(errors="replace").strip().splitlines()[-1:]
-                if window_id:
+                win_index: int | None = None
+                output_line = result.stdout.decode(errors="replace").strip().splitlines()[-1:]
+                if output_line:
+                    parts = output_line[0].split("\t", 1)
                     select = subprocess.run(
-                        ["tmux", "select-window", "-t", window_id[0]],
+                        ["tmux", "select-window", "-t", parts[0]],
                         capture_output=True,
                     )
                     if select.returncode != 0:
                         err = select.stderr.decode(errors="replace").strip()
                         raise SessionActionError(f"Could not select tmux window: {err}")
-                opened.append(OpenResult(session=session))
+                    if len(parts) > 1:
+                        with contextlib.suppress(ValueError):
+                            win_index = int(parts[1])
+                opened.append(OpenResult(session=session, window_index=win_index))
             except SessionActionError as exc:
                 errors.append(f"{public_id}: {exc}")
         return BulkOpenResult(opened=tuple(opened), errors=tuple(errors))

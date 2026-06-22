@@ -28,10 +28,12 @@ class CapturingActions:
 
     def open_in_webterm(self, public_id, *, codex_permission_preset=None):
         self.calls.append((public_id, codex_permission_preset))
+        return type("OpenResult", (), {"window_index": None})()
 
     def open_many_in_webterm(self, public_ids, *, codex_permission_preset=None):
         self.calls.append((public_ids, codex_permission_preset))
-        return type("BulkOpen", (), {"opened": tuple(public_ids), "errors": ()})()
+        items = tuple(type("OpenResult", (), {"window_index": None})() for _ in public_ids)
+        return type("BulkOpen", (), {"opened": items, "errors": ()})()
 
     def delete_many(self, public_ids):
         self.deleted.append(public_ids)
@@ -120,7 +122,7 @@ def test_open_route_passes_codex_permission_preset(app_config):
     )
 
     assert response.status_code == 302
-    assert response.headers["Location"] == "https://webterm.example.local"
+    assert response.headers["Location"] == "https://webterm.example.local/term"
     assert actions.calls == [(session.public_id, "full-auto")]
 
 
@@ -149,7 +151,7 @@ def test_bulk_open_route_passes_selected_sessions(app_config):
     )
 
     assert response.status_code == 302
-    assert response.headers["Location"] == "https://webterm.example.local"
+    assert response.headers["Location"] == "https://webterm.example.local/term"
     assert actions.calls == [(selected, "full-auto")]
 
 
