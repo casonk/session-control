@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Connections — Session Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Connections</h1>
+          <p id="monitor-status">
+            {% if monitor_enabled %}
+              Probing every {{ initial_data.interval_seconds|int }}s
+            {% else %}
+              Monitor disabled — set SESSION_CONTROL_MONITOR_TARGETS
+            {% endif %}
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="last-updated" class="eyebrow" style="margin:0"></span>
+          <a class="button ghost" href="{{ url_for('index') }}">Sessions</a>
+        </div>
+      </header>
+
+      <section class="conn-table-wrap" aria-label="Connection status">
+        <table class="conn-table" id="conn-table">
+          <thead>
+            <tr>
+              <th>Target</th>
+              <th>Status</th>
+              <th>ms (last)</th>
+              <th>ms (avg)</th>
+              <th>Loss</th>
+              <th>Last drop</th>
+              <th>Last recovery</th>
+              <th class="spark-col">History ({{ initial_data.interval_seconds|int }}s/bar)</th>
+            </tr>
+          </thead>
+          <tbody id="conn-tbody">
+            {% for t in initial_data.targets %}
+              <tr class="conn-row" data-status="{{ t.status }}">
+                <td class="conn-name">
+                  {{ t.name }}
+                  <small class="conn-host">{{ t.host }}</small>
+                </td>
+                <td>
+                  <span class="conn-pill {{ t.status }}">
+                    {{ "●" if t.status == "up" else ("✕" if t.status == "down" else "?") }}
+                    {{ t.status|upper }}
+                  </span>
+                </td>
+                <td class="conn-num">
+                  {% if t.latency_ms is not none %}{{ "%.1f"|format(t.latency_ms) }}{% else %}—{% endif %}
+                </td>
+                <td class="conn-num">
+                  {% if t.avg_latency_ms is not none %}{{ "%.1f"|format(t.avg_latency_ms) }}{% else %}—{% endif %}
+                </td>
+                <td class="conn-num {% if t.loss_pct > 0 %}loss-warn{% endif %}">
+                  {{ "%.1f"|format(t.loss_pct) }}%
+                </td>
+                <td class="conn-ts">{{ t.last_down_at | default("—") }}</td>
+                <td class="conn-ts">{{ t.last_up_at | default("—") }}</td>
+                <td class="sparkline">{{ t.sparkline }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="8" class="empty">No targets configured.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+
+      <section class="conn-events" aria-label="Recent connection events" id="conn-events">
+        <h2 class="eyebrow" style="margin-top:22px;margin-bottom:10px">Recent Events</h2>
+        <div id="events-list">
+          {% if initial_data.events %}
+            {% for e in initial_data.events %}
+              <div class="conn-event {{ e.kind }}">
+                <span class="event-ts">{{ e.ts[:19].replace("T", " ") }}</span>
+                <span class="event-target">{{ e.target }}</span>
+                <span class="event-kind {{ e.kind }}">{{ e.kind|upper }}</span>
+                {% if e.prior_duration_seconds %}
+                  <span class="event-dur">after {{ e.prior_duration_seconds|int }}s</span>
+                {% endif %}
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty">No events yet.</div>
+          {% endif %}
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const INTERVAL_MS = {{ (initial_data.interval_seconds * 1000)|int }};
+
+      function fmtTs(iso) {
+        if (!iso) return "—";
+        return iso.slice(0, 19).replace("T", " ");
+      }
+
+      function fmtMs(v) {
+        return v == null ? "—" : v.toFixed(1);
+      }
+
+      function renderRow(t) {
+        const statusChar = t.status === "up" ? "●" : t.status === "down" ? "✕" : "?";
+        const lossWarn = t.loss_pct > 0 ? " loss-warn" : "";
+        return `<tr class="conn-row" data-status="${t.status}">
+          <td class="conn-name">${t.name}<small class="conn-host">${t.host}</small></td>
+          <td><span class="conn-pill ${t.status}">${statusChar} ${t.status.toUpperCase()}</span></td>
+          <td class="conn-num">${fmtMs(t.latency_ms)}</td>
+          <td class="conn-num">${fmtMs(t.avg_latency_ms)}</td>
+          <td class="conn-num${lossWarn}">${t.loss_pct.toFixed(1)}%</td>
+          <td class="conn-ts">${fmtTs(t.last_down_at)}</td>
+          <td class="conn-ts">${fmtTs(t.last_up_at)}</td>
+          <td class="sparkline">${t.sparkline}</td>
+        </tr>`;
+      }
+
+      function renderEvent(e) {
+        const dur = e.prior_duration_seconds ? ` after ${Math.round(e.prior_duration_seconds)}s` : "";
+        return `<div class="conn-event ${e.kind}">
+          <span class="event-ts">${fmtTs(e.ts)}</span>
+          <span class="event-target">${e.target}</span>
+          <span class="event-kind ${e.kind}">${e.kind.toUpperCase()}</span>
+          <span class="event-dur">${dur}</span>
+        </div>`;
+      }
+
+      async function poll() {
+        try {
+          const resp = await fetch("/api/connections");
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (!data.enabled) return;
+
+          document.getElementById("conn-tbody").innerHTML =
+            data.targets.length
+              ? data.targets.map(renderRow).join("")
+              : `<tr><td colspan="8" class="empty">No targets configured.</td></tr>`;
+
+          const evList = document.getElementById("events-list");
+          evList.innerHTML = data.events.length
+            ? data.events.map(renderEvent).join("")
+            : `<div class="empty">No events yet.</div>`;
+
+          const now = new Date().toLocaleTimeString();
+          document.getElementById("last-updated").textContent = `Updated ${now}`;
+        } catch (_) {}
+      }
+
+      if (INTERVAL_MS > 0) {
+        setInterval(poll, Math.max(INTERVAL_MS, 3000));
+      }
+    </script>
+  </body>
+</html>
