@@ -30,6 +30,7 @@ dev = [
   "pytest>=8",
   "ruff",
   "black",
+  "rich>=13",
 ]
 
 [project.scripts]
