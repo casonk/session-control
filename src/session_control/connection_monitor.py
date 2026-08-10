@@ -114,30 +114,33 @@ class TargetState:
 
         if result.ok:
             self.last_up_at = result.wall_ts
-            return ConnEvent(ts=result.wall_ts, target=self.config.name, kind="up",
-                             prior_duration_seconds=prior)
+            return ConnEvent(
+                ts=result.wall_ts, target=self.config.name, kind="up", prior_duration_seconds=prior
+            )
         else:
             self.last_down_at = result.wall_ts
-            return ConnEvent(ts=result.wall_ts, target=self.config.name, kind="down",
-                             prior_duration_seconds=prior)
+            return ConnEvent(
+                ts=result.wall_ts,
+                target=self.config.name,
+                kind="down",
+                prior_duration_seconds=prior,
+            )
 
     def to_dict(self) -> dict:
         return {
             "name": self.config.name,
             "kind": self.config.kind,
             "host": self.config.host,
-            "status": ("up" if self.current_ok else "down")
-                      if self.current_ok is not None else "unknown",
+            "status": (
+                ("up" if self.current_ok else "down") if self.current_ok is not None else "unknown"
+            ),
             "latency_ms": self.latency_ms,
             "avg_latency_ms": round(self.avg_latency_ms, 1) if self.avg_latency_ms else None,
             "loss_pct": round(self.loss_pct, 1),
             "last_down_at": self.last_down_at.isoformat() if self.last_down_at else None,
             "last_up_at": self.last_up_at.isoformat() if self.last_up_at else None,
             "sparkline": self.sparkline(),
-            "history": [
-                {"ts": r.ts, "ok": r.ok, "latency_ms": r.latency_ms}
-                for r in self.history
-            ],
+            "history": [{"ts": r.ts, "ok": r.ok, "latency_ms": r.latency_ms} for r in self.history],
         }
 
 
@@ -192,6 +195,7 @@ class ConnectionMonitor:
 
 # ── probe implementations ─────────────────────────────────────────────────────
 
+
 def _probe(config: TargetConfig) -> ProbeResult:
     wall_ts = datetime.now(timezone.utc)
     t0 = time.monotonic()
@@ -215,9 +219,7 @@ def _ping_icmp(host: str, timeout: float) -> tuple[bool, float | None]:
         args = ["ping", "-c", "1", "-t", str(timeout_int), host]
     else:
         args = ["ping", "-c", "1", "-W", str(timeout_int), host]
-    result = subprocess.run(
-        args, capture_output=True, text=True, timeout=timeout + 3
-    )
+    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout + 3)
     if result.returncode != 0:
         return False, None
     m = _PING_TIME_RE.search(result.stdout)
@@ -243,6 +245,7 @@ def _probe_http(url: str, timeout: float) -> tuple[bool, float | None]:
 
 
 # ── config helpers ────────────────────────────────────────────────────────────
+
 
 def targets_from_config(config: object) -> list[TargetConfig]:
     """

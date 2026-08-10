@@ -15,7 +15,6 @@ targets are configured.
 
 from __future__ import annotations
 
-import os
 import signal
 import sys
 import time
@@ -38,10 +37,10 @@ except ImportError:
     print("rich is required: pip install rich", file=sys.stderr)
     sys.exit(1)
 
-from session_control.cli import _load_default_env
-from session_control.config import AppConfig
-from session_control.connection_monitor import (
-    ConnEvent,
+# These must follow the sys.path bootstrap above, so E402 does not apply.
+from session_control.cli import _load_default_env  # noqa: E402
+from session_control.config import AppConfig  # noqa: E402
+from session_control.connection_monitor import (  # noqa: E402
     ConnectionMonitor,
     TargetConfig,
     TargetState,
@@ -164,7 +163,9 @@ def _build_events_panel(monitor: ConnectionMonitor) -> Panel:
             lines.append(f"{kind.upper():<6}", style=f"bold {color}")
             lines.append(dur_str)
             lines.append("\n")
-    return Panel(lines, title="[bold dim]Recent Events[/bold dim]", border_style="dim", padding=(0, 1))
+    return Panel(
+        lines, title="[bold dim]Recent Events[/bold dim]", border_style="dim", padding=(0, 1)
+    )
 
 
 def _default_targets() -> list[TargetConfig]:
