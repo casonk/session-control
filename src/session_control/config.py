@@ -30,6 +30,9 @@ class AppConfig:
     claude_status_command: tuple[str, ...] = ("claude", "auth", "status", "--json")
     claude_status_poll_interval_seconds: int = 300
     claude_status_timeout_seconds: int = 10
+    scan_cache_ttl_seconds: float = 5.0
+    monitor_targets: tuple[str, ...] = ()
+    monitor_interval_seconds: float = 5.0
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -64,6 +67,9 @@ class AppConfig:
                 "SESSION_CONTROL_CLAUDE_STATUS_POLL_INTERVAL", 300
             ),
             claude_status_timeout_seconds=_int_env("SESSION_CONTROL_CLAUDE_STATUS_TIMEOUT", 10),
+            scan_cache_ttl_seconds=_float_env("SESSION_CONTROL_SCAN_CACHE_TTL", 5.0),
+            monitor_targets=_split_csv(os.environ.get("SESSION_CONTROL_MONITOR_TARGETS", "")),
+            monitor_interval_seconds=_float_env("SESSION_CONTROL_MONITOR_INTERVAL", 5.0),
         )
 
     def provider_root(self, provider: str) -> Path:
@@ -97,6 +103,16 @@ def _int_env(name: str, default: int) -> int:
         return default
     try:
         return max(1, int(value))
+    except ValueError:
+        return default
+
+
+def _float_env(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return max(0.0, float(value))
     except ValueError:
         return default
 

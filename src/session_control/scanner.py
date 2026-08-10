@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,8 +35,24 @@ CLAUDE_TOKEN_FIELDS = (
 class SessionScanner:
     def __init__(self, config: AppConfig):
         self.config = config
+        self._lock = threading.Lock()
+        self._cache: dict[tuple[str, ...] | None, tuple[float, ScanReport]] = {}
 
     def scan(self, providers: tuple[str, ...] | None = None) -> ScanReport:
+        ttl = self.config.scan_cache_ttl_seconds
+        if ttl > 0:
+            now = time.monotonic()
+            with self._lock:
+                entry = self._cache.get(providers)
+                if entry and now - entry[0] < ttl:
+                    return entry[1]
+            report = self._do_scan(providers)
+            with self._lock:
+                self._cache[providers] = (time.monotonic(), report)
+            return report
+        return self._do_scan(providers)
+
+    def _do_scan(self, providers: tuple[str, ...] | None = None) -> ScanReport:
         selected = providers or PROVIDERS
         sessions: list[SessionRecord] = []
         errors: list[ScanError] = []
@@ -708,11 +727,33 @@ def _first_markdown_heading(path: Path) -> str:
     return ""
 
 
+def _process_exists(pid: int) -> bool:
+    """Report whether *pid* is a live process, portably.
+
+    /proc only exists on Linux, so probing it silently reports every lock as
+    dead on macOS — which would let prune and delete tear down sessions that
+    are actively in use. Signal 0 performs the permission and existence checks
+    without delivering a signal. A PermissionError means the process exists but
+    belongs to another user, which still counts as live.
+    """
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def _has_live_lock(session_dir: Path) -> bool:
     for lock in session_dir.glob("inuse.*.lock"):
         match = re.search(r"inuse\.(\d+)\.lock$", lock.name)
         if not match:
             continue
-        if Path(f"/proc/{match.group(1)}").exists():
+        if _process_exists(int(match.group(1))):
             return True
     return False

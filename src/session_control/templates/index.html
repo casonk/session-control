@@ -14,7 +14,10 @@
           <h1>Session Control</h1>
           <p>{{ sessions|length }} visible session{{ '' if sessions|length == 1 else 's' }}</p>
         </div>
-        <a class="button ghost" href="{{ url_for('index') }}">Refresh</a>
+        <div style="display:flex;gap:8px">
+          <a class="button ghost" href="{{ url_for('connections') }}">Connections</a>
+          <a class="button ghost" href="{{ url_for('index') }}">Refresh</a>
+        </div>
       </header>
 
       {% if codex_usage %}

@@ -29,6 +29,7 @@ from session_control.codex_permissions import (
     normalize_codex_permission_preset,
 )
 from session_control.config import AppConfig
+from session_control.connection_monitor import ConnectionMonitor, targets_from_config
 from session_control.models import SessionRecord
 from session_control.scanner import PROVIDERS, SessionScanner
 
@@ -45,6 +46,7 @@ def create_app(
     scanner: SessionScanner | None = None,
     actions: SessionActionService | None = None,
     claude_status_poller: ClaudeStatusPoller | None = None,
+    connection_monitor: ConnectionMonitor | None = None,
 ) -> Flask:
     app_config = config or AppConfig.from_env()
     app_scanner = scanner or SessionScanner(app_config)
@@ -52,6 +54,9 @@ def create_app(
     app_claude_status = claude_status_poller or _claude_status_poller(app_config, app_scanner)
     if app_claude_status:
         app_claude_status.start()
+    app_conn_monitor = connection_monitor or _connection_monitor(app_config)
+    if app_conn_monitor:
+        app_conn_monitor.start()
     app = Flask(__name__)
     app.secret_key = app_config.secret_key
 
@@ -130,6 +135,25 @@ def create_app(
     @app.get("/healthz")
     def healthz():
         return jsonify({"ok": True})
+
+    @app.get("/connections")
+    def connections():
+        data = (
+            app_conn_monitor.snapshot()
+            if app_conn_monitor
+            else {"targets": [], "events": [], "interval_seconds": 0}
+        )
+        return render_template(
+            "connections.html",
+            initial_data=data,
+            monitor_enabled=app_conn_monitor is not None,
+        )
+
+    @app.get("/api/connections")
+    def api_connections():
+        if not app_conn_monitor:
+            return jsonify({"enabled": False, "targets": [], "events": [], "interval_seconds": 0})
+        return jsonify({"enabled": True, **app_conn_monitor.snapshot()})
 
     @app.post("/sessions/<public_id>/open")
     def open_session(public_id: str):
@@ -293,6 +317,13 @@ def _find_session(sessions: tuple[SessionRecord, ...], public_id: str) -> Sessio
 
 def _posted_session_ids() -> tuple[str, ...]:
     return tuple(dict.fromkeys(value for value in request.form.getlist("session_id") if value))
+
+
+def _connection_monitor(config: AppConfig) -> ConnectionMonitor | None:
+    targets = targets_from_config(config)
+    if not targets:
+        return None
+    return ConnectionMonitor(targets, interval_seconds=config.monitor_interval_seconds)
 
 
 def _claude_status_poller(config: AppConfig, scanner: SessionScanner) -> ClaudeStatusPoller | None:
