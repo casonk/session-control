@@ -21,8 +21,11 @@ and move them to Done.
   Template: `traction-control/docs/templates/AGENTS.md`.
 
 - [ ] [manual:2026-05-03] Add a restore command for sessions moved into the local trash directory.
-- [ ] [manual:2026-05-03] Add provider format probes that report unsupported schema drift in the web UI.
 
 ## In Progress
 
 ## Done
+
+- [x] [manual:2026-08-27] Add provider format probes that report unsupported
+  session-index, session-file, workspace, and event-log schema drift in the
+  web UI without hiding sessions from unaffected providers. [manual:2026-05-03]

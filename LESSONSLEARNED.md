@@ -13,6 +13,9 @@ change how future sessions work in this repo.
 
 ## Lessons
 
+- Provider parsers must report an unsupported local schema in the UI while
+  continuing to display unaffected providers. Format diagnostics must name
+  only a filename or session directory, never a full private path.
 - Document the repository around its real execution, curation, or integration flow instead of only the top-level folder list.
 - Keep local-only, private, reference-only, or generated boundaries explicit so published or runtime behavior is not confused with offline material or non-committable inputs.
 - Keep tracked examples, fixtures, and `.example` templates scrubbed of real paths, usernames, hostnames, account identifiers, or other instance-specific values; real operator data belongs only in gitignored local config.

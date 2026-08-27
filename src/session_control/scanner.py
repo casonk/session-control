@@ -8,6 +8,7 @@ import re
 import shlex
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -67,7 +68,9 @@ class SessionScanner:
                 errors.append(ScanError(provider, "Unknown provider."))
                 continue
             try:
-                sessions.extend(scanners[provider]())
+                provider_report = scanners[provider]()
+                sessions.extend(provider_report.sessions)
+                errors.extend(provider_report.errors)
             except OSError as exc:
                 errors.append(ScanError(provider, str(exc)))
             except ValueError as exc:
@@ -75,14 +78,24 @@ class SessionScanner:
         sessions.sort(key=lambda item: item.updated_at or item.created_at, reverse=True)
         return ScanReport(tuple(sessions), tuple(errors))
 
-    def _scan_codex(self) -> list[SessionRecord]:
+    def _scan_codex(self) -> ScanReport:
         root = self.config.codex_root
         index = _read_codex_index(root / "session_index.jsonl")
         records: list[SessionRecord] = []
+        errors: list[ScanError] = []
         for base in (root / "sessions", root / "archived_sessions"):
             if not base.exists():
                 continue
             for path in base.rglob("*.jsonl"):
+                issue = _probe_jsonl(
+                    path,
+                    description="Codex session",
+                    supported=lambda item: bool(item.get("type")),
+                    expectation="a typed event record",
+                )
+                if issue:
+                    errors.append(ScanError("codex", issue))
+                    continue
                 record = _codex_record(
                     path,
                     index,
@@ -92,50 +105,103 @@ class SessionScanner:
                 )
                 if record:
                     records.append(record)
-        return records
+        return ScanReport(tuple(records), tuple(errors))
 
-    def _scan_claude(self) -> list[SessionRecord]:
+    def _scan_claude(self) -> ScanReport:
         root = self.config.claude_root / "projects"
         if not root.exists():
-            return []
-        records = []
+            return ScanReport(())
+        records: list[SessionRecord] = []
+        errors: list[ScanError] = []
         for path in root.rglob("*.jsonl"):
+            issue = _probe_jsonl(
+                path,
+                description="Claude Code session",
+                supported=lambda item: bool(item.get("sessionId")),
+                expectation="a record with sessionId",
+            )
+            if issue:
+                errors.append(ScanError("claude", issue))
+                continue
             record = _claude_record(path, self.config.max_preview_chars)
             if record:
                 records.append(record)
-        return records
+        return ScanReport(tuple(records), tuple(errors))
 
-    def _scan_continue(self) -> list[SessionRecord]:
+    def _scan_continue(self) -> ScanReport:
         root = self.config.continue_root / "sessions"
         if not root.exists():
-            return []
+            return ScanReport(())
         summaries = _read_json(root / "sessions.json")
         summary_by_id = {}
+        errors: list[ScanError] = []
+        index_path = root / "sessions.json"
+        if index_path.exists() and not _is_continue_index(summaries):
+            errors.append(
+                ScanError(
+                    "continue",
+                    "Unsupported Continue session index schema in sessions.json; "
+                    "expected a list of session summaries with sessionId.",
+                )
+            )
         if isinstance(summaries, list):
             summary_by_id = {
                 str(item.get("sessionId")): item for item in summaries if isinstance(item, dict)
             }
-        records = []
+        records: list[SessionRecord] = []
         for path in root.glob("*.json"):
             if path.name == "sessions.json":
+                continue
+            data = _read_json(path)
+            if not _is_continue_session(data):
+                errors.append(
+                    ScanError(
+                        "continue",
+                        f"Unsupported Continue session schema in {path.name}; "
+                        "expected an object with sessionId.",
+                    )
+                )
                 continue
             record = _continue_record(path, summary_by_id, self.config.max_preview_chars)
             if record:
                 records.append(record)
-        return records
+        return ScanReport(tuple(records), tuple(errors))
 
-    def _scan_copilot(self) -> list[SessionRecord]:
+    def _scan_copilot(self) -> ScanReport:
         root = self.config.copilot_root / "session-state"
         if not root.exists():
-            return []
-        records = []
+            return ScanReport(())
+        records: list[SessionRecord] = []
+        errors: list[ScanError] = []
         for session_dir in root.iterdir():
             if not session_dir.is_dir():
                 continue
+            workspace_file = session_dir / "workspace.yaml"
+            workspace_data = _read_simple_yaml(workspace_file)
+            if not workspace_file.exists() or not _is_copilot_workspace(workspace_data):
+                errors.append(
+                    ScanError(
+                        "copilot",
+                        f"Unsupported Copilot session schema in {session_dir.name}; "
+                        "expected workspace.yaml with id or cwd.",
+                    )
+                )
+                continue
+            events = session_dir / "events.jsonl"
+            if events.exists():
+                issue = _probe_jsonl(
+                    events,
+                    description="Copilot event log",
+                    supported=lambda item: bool(item.get("type")),
+                    expectation="a typed event record",
+                )
+                if issue:
+                    errors.append(ScanError("copilot", issue))
+                    continue
             record = _copilot_record(session_dir, self.config.max_preview_chars)
             if record:
                 records.append(record)
-        return records
+        return ScanReport(tuple(records), tuple(errors))
 
 
 def _codex_record(
@@ -488,6 +554,50 @@ def _read_simple_yaml(path: Path) -> dict[str, str]:
     except OSError:
         return values
     return values
+
+
+def _probe_jsonl(
+    path: Path,
+    *,
+    description: str,
+    supported: Callable[[dict[str, Any]], bool],
+    expectation: str,
+) -> str | None:
+    valid = False
+    malformed = False
+    try:
+        for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                malformed = True
+                continue
+            if isinstance(item, dict) and supported(item):
+                valid = True
+    except OSError as exc:
+        return f"Could not read {description} {path.name}: {exc}"
+    if valid:
+        return None
+    if malformed:
+        return f"Unsupported {description} format in {path.name}; invalid JSONL was found."
+    return f"Unsupported {description} schema in {path.name}; expected {expectation}."
+
+
+def _is_continue_index(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, dict) and bool(item.get("sessionId")) for item in value
+    )
+
+
+def _is_continue_session(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value.get("sessionId"))
+
+
+def _is_copilot_workspace(value: dict[str, str]) -> bool:
+    return bool(value.get("id") or value.get("cwd"))
 
 
 def _extract_text(value: Any) -> str:
