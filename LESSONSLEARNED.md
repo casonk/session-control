@@ -13,6 +13,10 @@ change how future sessions work in this repo.
 
 ## Lessons
 
+- Reversible deletion needs locally stored, provider-relative restore metadata;
+  a bare filename cannot safely reconstruct nested provider stores. Restore
+  must accept only a configured-trash entry, reject traversal and symlink
+  escapes, and never overwrite a newly created session path.
 - Provider parsers must report an unsupported local schema in the UI while
   continuing to display unaffected providers. Format diagnostics must name
   only a filename or session directory, never a full private path.

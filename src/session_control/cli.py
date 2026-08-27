@@ -13,6 +13,9 @@ from pathlib import Path
 from session_control.actions import (
     DeduplicateResult,
     PruneResult,
+    RestoreCandidate,
+    RestoreResult,
+    SessionActionError,
     SessionActionService,
 )
 from session_control.config import AppConfig
@@ -144,6 +147,15 @@ def _build_parser() -> argparse.ArgumentParser:
     dedup.add_argument("--dry-run", action="store_true", help="show what would be merged")
     dedup.add_argument("--json", action="store_true", help="print the report as JSON")
 
+    restore = subparsers.add_parser("restore", help="restore a session from local trash")
+    restore.add_argument(
+        "trash_id",
+        nargs="?",
+        help="entry from `restore --list`, as timestamp/provider/session-id",
+    )
+    restore.add_argument("--list", action="store_true", help="list restorable trash entries")
+    restore.add_argument("--json", action="store_true", help="print restore data as JSON")
+
     web = subparsers.add_parser("web", help="run the private web UI")
     web.add_argument("--host", default=os.environ.get("SESSION_CONTROL_HOST", "127.0.0.1"))
     web.add_argument(
@@ -206,6 +218,35 @@ def main(argv: list[str] | None = None) -> int:
         else:
             _print_prune_result(result, args.older_than)
         return 1 if result.errors else 0
+
+    if args.command == "restore":
+        service = SessionActionService(config)
+        if args.list:
+            candidates = service.list_trash()
+            if args.json:
+                print(
+                    json.dumps([_restore_candidate_to_dict(item) for item in candidates], indent=2)
+                )
+            else:
+                _print_restore_candidates(candidates)
+            return 0
+        if not args.trash_id:
+            parser.error("restore requires a trash entry or --list")
+        try:
+            result = service.restore(args.trash_id)
+        except SessionActionError as exc:
+            print(f"ERROR: {exc}")
+            return 1
+        if args.json:
+            print(json.dumps(_restore_result_to_dict(result), indent=2))
+        else:
+            print(
+                f"RESTORED {result.candidate.provider:8} {result.candidate.session_id} "
+                f"from {result.candidate.trash_id}"
+            )
+            for path in result.restored_to:
+                print(f"  -> {path}")
+        return 0
 
     parser.error(f"unknown command: {args.command}")
     return 2
@@ -310,4 +351,31 @@ def _prune_result_to_dict(result: PruneResult) -> dict:
             }
             for error in result.errors
         ],
+    }
+
+
+def _print_restore_candidates(candidates: tuple[RestoreCandidate, ...]) -> None:
+    if not candidates:
+        print("No restorable sessions in local trash.")
+        return
+    for item in candidates:
+        print(
+            f"{item.trash_id}  {item.provider:8} {item.session_id} ({item.moved_count} target(s))"
+        )
+
+
+def _restore_candidate_to_dict(candidate: RestoreCandidate) -> dict:
+    return {
+        "trash_id": candidate.trash_id,
+        "provider": candidate.provider,
+        "session_id": candidate.session_id,
+        "moved_at": candidate.moved_at,
+        "moved_count": candidate.moved_count,
+    }
+
+
+def _restore_result_to_dict(result: RestoreResult) -> dict:
+    return {
+        "candidate": _restore_candidate_to_dict(result.candidate),
+        "restored_to": [str(path) for path in result.restored_to],
     }

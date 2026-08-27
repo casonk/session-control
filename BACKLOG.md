@@ -11,21 +11,21 @@ and move them to Done.
 
 ## Pending
 
-- [ ] [manual:2026-08-23] Name `CHATHISTORY.md` in `AGENTS.md` as the
-  local-only, gitignored session memory, alongside the existing
-  `LESSONSLEARNED.md` reference. This is the one shared convention the repo is
-  missing — `scripts/check_agents_md.py` in traction-control flags it. It
-  matters more here than elsewhere: this repo parses AI assistant session
-  files, which can carry credentials, copied logs, and private paths, so the
-  local-only boundary should be stated where an agent reads it first.
-  Template: `traction-control/docs/templates/AGENTS.md`.
-
-- [ ] [manual:2026-05-03] Add a restore command for sessions moved into the local trash directory.
 
 ## In Progress
 
 ## Done
 
+- [x] [manual:2026-08-23] Name `CHATHISTORY.md` in `AGENTS.md` as the
+  local-only, gitignored session memory, alongside `LESSONSLEARNED.md`; it
+  must not contain parsed session contents, credentials, copied logs, or
+  private paths. Template: `traction-control/docs/templates/AGENTS.md`.
+- [x] [manual:2026-08-27] Add `session-control restore --list` and
+  `session-control restore <timestamp/provider/session-id>` for sessions
+  newly moved to local trash. Restore metadata preserves provider-relative
+  paths; restore refuses traversal and overwrites, and rebuilds the Continue
+  index when needed. Sessions trashed before this change remain manual
+  recovery cases. [manual:2026-05-03]
 - [x] [manual:2026-08-27] Add provider format probes that report unsupported
   session-index, session-file, workspace, and event-log schema drift in the
   web UI without hiding sessions from unaffected providers. [manual:2026-05-03]
