@@ -45,6 +45,21 @@ class DeleteResult:
 
 
 @dataclass(frozen=True)
+class RestoreCandidate:
+    trash_id: str
+    provider: str
+    session_id: str
+    moved_at: str
+    moved_count: int
+
+
+@dataclass(frozen=True)
+class RestoreResult:
+    candidate: RestoreCandidate
+    restored_to: tuple[Path, ...]
+
+
+@dataclass(frozen=True)
 class BulkDeleteResult:
     deleted: tuple[DeleteResult, ...]
     errors: tuple[str, ...]
@@ -218,6 +233,57 @@ class SessionActionService:
                 errors.append(f"{public_id}: {exc}")
         return BulkDeleteResult(deleted=tuple(deleted), errors=tuple(errors))
 
+    def list_trash(self) -> tuple[RestoreCandidate, ...]:
+        if not self.config.trash_dir.exists():
+            return ()
+        candidates: list[RestoreCandidate] = []
+        for manifest_path in self.config.trash_dir.rglob(".session-control-restore.json"):
+            try:
+                candidate = _restore_candidate_from_manifest(manifest_path, self.config.trash_dir)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            candidates.append(candidate)
+        return tuple(sorted(candidates, key=lambda item: item.trash_id, reverse=True))
+
+    def restore(self, trash_id: str) -> RestoreResult:
+        batch_dir = _trash_batch_path(self.config.trash_dir, trash_id)
+        manifest_path = batch_dir / ".session-control-restore.json"
+        try:
+            candidate = _restore_candidate_from_manifest(manifest_path, self.config.trash_dir)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise SessionActionError("Trash entry was not found.") from exc
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise SessionActionError(f"Trash entry is invalid: {exc}") from exc
+        if candidate.trash_id != trash_id:
+            raise SessionActionError("Trash entry does not match its restore manifest.")
+
+        provider_root = self.config.provider_root(candidate.provider)
+        targets = _restore_targets(manifest, batch_dir, provider_root)
+        for source, destination in targets:
+            if not source.exists():
+                raise SessionActionError(f"Trash payload is missing: {source.name}")
+            if destination.exists():
+                raise SessionActionError(f"Refusing to overwrite existing path: {destination}")
+
+        restored: list[Path] = []
+        try:
+            for source, destination in targets:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(source), str(destination))
+                restored.append(destination)
+            if candidate.provider == "continue":
+                _restore_continue_index_entry(
+                    provider_root / "sessions" / "sessions.json",
+                    candidate.session_id,
+                    restored,
+                )
+            manifest_path.unlink()
+            _remove_empty_trash_dirs(batch_dir, self.config.trash_dir)
+        except OSError as exc:
+            raise SessionActionError(f"Could not restore session: {exc}") from exc
+        return RestoreResult(candidate=candidate, restored_to=tuple(restored))
+
     def deduplicate(
         self,
         min_age: timedelta,
@@ -357,13 +423,16 @@ class SessionActionService:
             raise SessionActionError("Refusing to delete a session that appears to be active.")
         provider_root = self.config.provider_root(session.provider)
         batch_dir = self._trash_batch_dir(session)
-        moved = 0
+        target_mappings: list[tuple[Path, Path]] = []
         for target in session.delete_targets:
             if not target.exists():
                 continue
             if not _is_under(target, provider_root):
                 raise SessionActionError(f"Refusing to delete path outside provider root: {target}")
-            destination = batch_dir / target.name
+            target_mappings.append((target, batch_dir / target.name))
+        _write_restore_manifest(session, provider_root, batch_dir, target_mappings)
+        moved = 0
+        for target, destination in target_mappings:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(target), str(destination))
             moved += 1
@@ -455,6 +524,146 @@ def _is_under(path: Path, root: Path) -> bool:
         return True
     except (OSError, ValueError):
         return False
+
+
+def _write_restore_manifest(
+    session: SessionRecord,
+    provider_root: Path,
+    batch_dir: Path,
+    target_mappings: list[tuple[Path, Path]],
+) -> None:
+    try:
+        targets = [
+            {
+                "trash_path": str(destination.relative_to(batch_dir)),
+                "provider_path": str(source.relative_to(provider_root)),
+            }
+            for source, destination in target_mappings
+        ]
+        payload = {
+            "version": 1,
+            "provider": session.provider,
+            "session_id": session.session_id,
+            "moved_at": batch_dir.parts[-3],
+            "targets": targets,
+        }
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / ".session-control-restore.json").write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    except (OSError, ValueError) as exc:
+        raise SessionActionError(f"Could not record restore metadata: {exc}") from exc
+
+
+def _trash_batch_path(trash_dir: Path, trash_id: str) -> Path:
+    candidate = Path(trash_id)
+    if (
+        candidate.is_absolute()
+        or len(candidate.parts) != 3
+        or any(part in {"", ".", ".."} for part in candidate.parts)
+    ):
+        raise SessionActionError(
+            "Trash entry must be a relative timestamp/provider/session-id path."
+        )
+    batch_dir = trash_dir / candidate
+    if not _is_under(batch_dir, trash_dir):
+        raise SessionActionError("Trash entry must stay inside the configured trash directory.")
+    return batch_dir
+
+
+def _restore_candidate_from_manifest(manifest_path: Path, trash_dir: Path) -> RestoreCandidate:
+    batch_dir = manifest_path.parent
+    relative = batch_dir.relative_to(trash_dir)
+    if len(relative.parts) != 3:
+        raise ValueError("unexpected trash entry path")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    provider = str(manifest.get("provider") or "")
+    session_id = str(manifest.get("session_id") or "")
+    moved_at = str(manifest.get("moved_at") or "")
+    targets = manifest.get("targets")
+    if provider not in {"codex", "claude", "continue", "copilot"} or not session_id:
+        raise ValueError("missing provider or session identifier")
+    if not isinstance(targets, list):
+        raise ValueError("missing restore targets")
+    if relative.parts[1] != provider or relative.parts[2] != _safe_session_id(session_id):
+        raise ValueError("restore manifest does not match its directory")
+    return RestoreCandidate(
+        trash_id=str(relative),
+        provider=provider,
+        session_id=session_id,
+        moved_at=moved_at,
+        moved_count=len(targets),
+    )
+
+
+def _restore_targets(
+    manifest: object, batch_dir: Path, provider_root: Path
+) -> list[tuple[Path, Path]]:
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("targets"), list):
+        raise SessionActionError("Trash entry has no restore targets.")
+    targets: list[tuple[Path, Path]] = []
+    for item in manifest["targets"]:
+        if not isinstance(item, dict):
+            raise SessionActionError("Trash entry has an invalid restore target.")
+        trash_path = Path(str(item.get("trash_path") or ""))
+        provider_path = Path(str(item.get("provider_path") or ""))
+        if (
+            trash_path.is_absolute()
+            or provider_path.is_absolute()
+            or not trash_path.parts
+            or not provider_path.parts
+            or any(part in {"", ".", ".."} for part in (*trash_path.parts, *provider_path.parts))
+        ):
+            raise SessionActionError("Trash entry contains an unsafe restore path.")
+        source = batch_dir / trash_path
+        destination = provider_root / provider_path
+        if not _is_under(source, batch_dir) or not _is_under(destination, provider_root):
+            raise SessionActionError("Trash entry contains an unsafe restore path.")
+        targets.append((source, destination))
+    if not targets:
+        raise SessionActionError("Trash entry has no restorable files.")
+    return targets
+
+
+def _safe_session_id(session_id: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in session_id)
+
+
+def _remove_empty_trash_dirs(batch_dir: Path, trash_dir: Path) -> None:
+    current = batch_dir
+    while current != trash_dir:
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
+
+
+def _restore_continue_index_entry(index_path: Path, session_id: str, restored: list[Path]) -> None:
+    if not restored:
+        return
+    try:
+        data = json.loads(restored[0].read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return
+        summary = {
+            key: data[key]
+            for key in ("sessionId", "title", "dateCreated", "workspaceDirectory", "messageCount")
+            if key in data
+        }
+        summary["sessionId"] = session_id
+        existing = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
+        if not isinstance(existing, list):
+            raise SessionActionError("Continue session index has an unsupported format.")
+        if any(
+            isinstance(item, dict) and str(item.get("sessionId") or "") == session_id
+            for item in existing
+        ):
+            return
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(json.dumps([*existing, summary], indent=2) + "\n", encoding="utf-8")
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SessionActionError(f"Could not restore Continue session index: {exc}") from exc
 
 
 def _launch_command(session: SessionRecord, *, codex_permission_preset: str | None) -> str:

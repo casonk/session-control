@@ -27,6 +27,43 @@ def test_delete_moves_continue_session_to_trash_and_updates_index(app_config):
     assert index == []
 
 
+def test_restore_returns_continue_session_to_original_path_and_index(app_config):
+    session_path = seed_continue(app_config.continue_root)
+    scanner = SessionScanner(app_config)
+    session = scanner.scan(providers=("continue",)).sessions[0]
+    actions = SessionActionService(app_config, scanner)
+
+    actions.delete(session.public_id)
+    candidates = actions.list_trash()
+    restored = actions.restore(candidates[0].trash_id)
+
+    assert candidates[0].session_id == session.session_id
+    assert restored.restored_to == (session_path,)
+    assert session_path.exists()
+    assert actions.list_trash() == ()
+    index = json.loads((app_config.continue_root / "sessions" / "sessions.json").read_text())
+    assert [item["sessionId"] for item in index] == [session.session_id]
+
+
+def test_restore_refuses_to_overwrite_existing_path(app_config):
+    session_path = seed_continue(app_config.continue_root)
+    scanner = SessionScanner(app_config)
+    session = scanner.scan(providers=("continue",)).sessions[0]
+    actions = SessionActionService(app_config, scanner)
+
+    actions.delete(session.public_id)
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text("existing", encoding="utf-8")
+
+    with pytest.raises(SessionActionError, match="overwrite"):
+        actions.restore(actions.list_trash()[0].trash_id)
+
+
+def test_restore_refuses_a_traversal_path(app_config):
+    with pytest.raises(SessionActionError, match="relative timestamp/provider/session-id"):
+        SessionActionService(app_config).restore("../continue/session")
+
+
 def test_open_creates_and_selects_persistent_tmux_window(app_config, monkeypatch):
     seed_continue(app_config.continue_root)
     scanner = SessionScanner(app_config)

@@ -41,6 +41,13 @@ session-control/
 6. When provider storage formats change, add or update fixtures in `tests/`
    before changing scanner behavior.
 
+## Agent Memory
+
+Read `LESSONSLEARNED.md` after this file for durable, reusable operating
+lessons. `CHATHISTORY.md` is deliberately local-only and gitignored: use it
+only for concise handoff state, never commit it, and never record session
+contents, credentials, copied logs, or private paths in it.
+
 ## Setup and Commands
 
 ```bash
@@ -67,6 +74,13 @@ Preview or run retention cleanup:
 ```bash
 session-control prune --older-than 180d --dry-run
 session-control prune --older-than 180d
+```
+
+List and restore a newly trashed session without overwriting an existing path:
+
+```bash
+session-control restore --list
+session-control restore 20260827T120000Z/continue/<session-id>
 ```
 
 Install the user service:

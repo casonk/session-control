@@ -113,6 +113,21 @@ directory instead of hard-deleting them immediately. Continue and Codex index
 files are updated when a session is removed. Copilot sessions with a live
 `inuse.<pid>.lock` are not deleted.
 
+Each newly deleted or pruned session records local restore metadata alongside
+its trash payload. List candidates, then restore one by its exact displayed
+identifier:
+
+```bash
+session-control restore --list
+session-control restore 20260827T120000Z/continue/<session-id>
+```
+
+Restore only accepts an entry beneath the configured trash directory, returns
+every file to its original provider-relative path, rebuilds the Continue index
+when needed, and refuses to overwrite any existing target. Sessions moved to
+trash before this feature do not have restore metadata and remain manual
+recovery cases.
+
 ## Pruning
 
 Pruning uses the same delete-to-trash path as the web UI. A session is eligible
