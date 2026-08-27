@@ -40,7 +40,7 @@ def seed_codex(
             "payload": {
                 "id": session_id,
                 "timestamp": "2026-04-01T12:00:00Z",
-                "cwd": "/workspace/private-repository",
+                "cwd": "/workspace/example-project",
                 "originator": "codex_cli",
             },
         },
@@ -48,7 +48,7 @@ def seed_codex(
     if model or approval_policy or sandbox_mode:
         payload = {
             "turn_id": "019d016b-30c2-7992-970a-b6082c1a2724",
-            "cwd": "/workspace/private-repository",
+            "cwd": "/workspace/example-project",
         }
         if model:
             payload["model"] = model
