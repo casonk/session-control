@@ -11,7 +11,6 @@ and move them to Done.
 
 ## Pending
 
-- [ ] [manual:2026-05-03] Add provider format probes that report unsupported schema drift in the web UI.
 
 ## In Progress
 
@@ -27,3 +26,6 @@ and move them to Done.
   paths; restore refuses traversal and overwrites, and rebuilds the Continue
   index when needed. Sessions trashed before this change remain manual
   recovery cases. [manual:2026-05-03]
+- [x] [manual:2026-08-27] Add provider format probes that report unsupported
+  session-index, session-file, workspace, and event-log schema drift in the
+  web UI without hiding sessions from unaffected providers. [manual:2026-05-03]

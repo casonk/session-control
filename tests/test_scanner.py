@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from session_control.scanner import SessionScanner
-from tests.helpers import seed_claude, seed_codex, seed_continue, seed_copilot
+from tests.helpers import seed_claude, seed_codex, seed_continue, seed_copilot, write_json
 
 
 def test_scanner_discovers_supported_provider_sessions(app_config):
@@ -39,6 +39,20 @@ def test_scanner_can_limit_provider(app_config):
     report = SessionScanner(app_config).scan(providers=("claude",))
 
     assert [session.provider for session in report.sessions] == ["claude"]
+
+
+def test_scanner_reports_continue_schema_drift_without_hiding_other_providers(app_config):
+    seed_codex(app_config.codex_root)
+    sessions_root = app_config.continue_root / "sessions"
+    write_json(sessions_root / "sessions.json", {"schema": "v2"})
+    write_json(sessions_root / "unknown-format.json", {"schema": "v2"})
+
+    report = SessionScanner(app_config).scan()
+
+    assert [session.provider for session in report.sessions] == ["codex"]
+    messages = [error.message for error in report.errors if error.provider == "continue"]
+    assert any("index schema" in message for message in messages)
+    assert any("unknown-format.json" in message for message in messages)
 
 
 def test_codex_resume_command_uses_recorded_model(app_config):

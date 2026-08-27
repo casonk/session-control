@@ -6,7 +6,7 @@ from werkzeug.datastructures import MultiDict
 
 from session_control.scanner import SessionScanner
 from session_control.web import create_app
-from tests.helpers import seed_claude, seed_codex, seed_continue
+from tests.helpers import seed_claude, seed_codex, seed_continue, write_json
 
 
 class StaticClaudeStatus:
@@ -57,6 +57,17 @@ def test_index_renders_sessions_and_resume_command(app_config):
     assert response.status_code == 200
     assert "Continue repo summary" in text
     assert "cn --fork 9f4b464d-495f-432d-8d16-31aa4e7ac7ea" in text
+
+
+def test_index_renders_provider_schema_drift_errors(app_config):
+    sessions_root = app_config.continue_root / "sessions"
+    write_json(sessions_root / "sessions.json", {"schema": "v2"})
+
+    response = create_app(app_config).test_client().get("/")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "continue: Unsupported Continue session index schema" in text
 
 
 def test_index_renders_codex_usage_summary(app_config):
