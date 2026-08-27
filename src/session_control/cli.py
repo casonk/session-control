@@ -360,8 +360,7 @@ def _print_restore_candidates(candidates: tuple[RestoreCandidate, ...]) -> None:
         return
     for item in candidates:
         print(
-            f"{item.trash_id}  {item.provider:8} {item.session_id} "
-            f"({item.moved_count} target(s))"
+            f"{item.trash_id}  {item.provider:8} {item.session_id} ({item.moved_count} target(s))"
         )
 
 
