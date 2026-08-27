@@ -81,6 +81,15 @@ adds a launch-time dropdown with these presets:
 Set `SESSION_CONTROL_CODEX_PERMISSION_PRESET` to choose the default dropdown
 selection for web-launched Codex resumes.
 
+## Provider Format Diagnostics
+
+Session Control probes the local formats it understands while scanning. If a
+provider changes an index, session file, workspace file, or event log schema,
+the index page shows a provider-specific warning without suppressing sessions
+from other providers. The warning names only the local file or session
+directory, never its full private path. Update the minimized fixtures and
+scanner support before relying on a new format.
+
 The Open action creates a tmux window in the configured webterm session, selects
 that window for new webterm tabs, and keeps the window open when the resume
 command exits with an error so the failure message is visible.
