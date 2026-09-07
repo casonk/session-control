@@ -76,6 +76,8 @@ def test_open_creates_and_selects_persistent_tmux_window(app_config, monkeypatch
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "new-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"@12\t12\n", stderr=b"")
+        if args[:2] == ["tmux", "set-option"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "select-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         raise AssertionError(f"unexpected subprocess call: {args}")
@@ -99,7 +101,34 @@ def test_open_creates_and_selects_persistent_tmux_window(app_config, monkeypatch
     assert calls[1][7] == app_config.tmux_session
     assert calls[1][-1].startswith("bash -lc ")
     assert "[session-control] Resume command exited" in calls[1][-1]
-    assert calls[2] == ["tmux", "select-window", "-t", "@12"]
+    assert calls[2] == [
+        "tmux",
+        "set-option",
+        "-w",
+        "-t",
+        "@12",
+        "@session_control_public_id",
+        session.public_id,
+    ]
+    assert calls[3] == [
+        "tmux",
+        "set-option",
+        "-w",
+        "-t",
+        "@12",
+        "@session_control_provider",
+        "continue",
+    ]
+    assert calls[4] == [
+        "tmux",
+        "set-option",
+        "-w",
+        "-t",
+        "@12",
+        "@session_control_session_id",
+        session.session_id,
+    ]
+    assert calls[5] == ["tmux", "select-window", "-t", "@12"]
 
 
 def test_open_can_override_codex_permissions_for_launch(app_config, monkeypatch):
@@ -114,6 +143,8 @@ def test_open_can_override_codex_permissions_for_launch(app_config, monkeypatch)
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "new-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"@12\n", stderr=b"")
+        if args[:2] == ["tmux", "set-option"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "select-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         raise AssertionError(f"unexpected subprocess call: {args}")
@@ -145,6 +176,8 @@ def test_open_creates_tmux_session_when_none_running(app_config, monkeypatch):
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "new-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"@1\t1\n", stderr=b"")
+        if args[:2] == ["tmux", "set-option"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         if args[:2] == ["tmux", "select-window"]:
             return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
         raise AssertionError(f"unexpected subprocess call: {args}")
@@ -157,7 +190,38 @@ def test_open_creates_tmux_session_when_none_running(app_config, monkeypatch):
     assert calls[0] == ["tmux", "has-session", "-t", app_config.tmux_session]
     assert calls[1] == ["tmux", "new-session", "-d", "-s", app_config.tmux_session]
     assert calls[2][:2] == ["tmux", "new-window"]
-    assert calls[3] == ["tmux", "select-window", "-t", "@1"]
+    assert calls[6] == ["tmux", "select-window", "-t", "@1"]
+
+
+def test_delete_closes_matching_webterm_window(app_config, monkeypatch):
+    session_path = seed_continue(app_config.continue_root)
+    scanner = SessionScanner(app_config)
+    session = scanner.scan(providers=("continue",)).sessions[0]
+    calls = []
+
+    def fake_run(args, capture_output):
+        calls.append(args)
+        if args[:2] == ["tmux", "has-session"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+        if args[:2] == ["tmux", "list-windows"]:
+            output = (
+                f"@1\t{session.public_id}\tcontinue\t{session.session_id}\n"
+                "@2\tother\tcontinue\tother-session\n"
+            )
+            return subprocess.CompletedProcess(args, 0, stdout=output.encode(), stderr=b"")
+        if args[:2] == ["tmux", "kill-window"]:
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+        raise AssertionError(f"unexpected subprocess call: {args}")
+
+    monkeypatch.setattr("session_control.actions.subprocess.run", fake_run)
+
+    result = SessionActionService(app_config, scanner).delete(session.public_id)
+
+    assert result.moved_count == 1
+    assert result.killed_window_count == 1
+    assert not session_path.exists()
+    assert ["tmux", "kill-window", "-t", "@1"] in calls
+    assert ["tmux", "kill-window", "-t", "@2"] not in calls
 
 
 def test_delete_refuses_live_copilot_lock(app_config):

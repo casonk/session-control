@@ -42,6 +42,7 @@ class DeleteResult:
     session: SessionRecord
     moved_to: Path
     moved_count: int
+    killed_window_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,7 @@ class SessionActionService:
         output_line = result.stdout.decode(errors="replace").strip().splitlines()[-1:]
         if output_line:
             parts = output_line[0].split("\t", 1)
+            _tag_tmux_window(parts[0], session)
             select = subprocess.run(
                 ["tmux", "select-window", "-t", parts[0]],
                 capture_output=True,
@@ -199,6 +201,7 @@ class SessionActionService:
                 output_line = result.stdout.decode(errors="replace").strip().splitlines()[-1:]
                 if output_line:
                     parts = output_line[0].split("\t", 1)
+                    _tag_tmux_window(parts[0], session)
                     select = subprocess.run(
                         ["tmux", "select-window", "-t", parts[0]],
                         capture_output=True,
@@ -430,6 +433,7 @@ class SessionActionService:
             if not _is_under(target, provider_root):
                 raise SessionActionError(f"Refusing to delete path outside provider root: {target}")
             target_mappings.append((target, batch_dir / target.name))
+        killed_window_count = _kill_tmux_windows_for_session(self.config.tmux_session, session)
         _write_restore_manifest(session, provider_root, batch_dir, target_mappings)
         moved = 0
         for target, destination in target_mappings:
@@ -442,7 +446,12 @@ class SessionActionService:
             _remove_continue_index_entry(
                 provider_root / "sessions" / "sessions.json", session.session_id
             )
-        return DeleteResult(session=session, moved_to=batch_dir, moved_count=moved)
+        return DeleteResult(
+            session=session,
+            moved_to=batch_dir,
+            moved_count=moved,
+            killed_window_count=killed_window_count,
+        )
 
     def _ensure_tmux_session(self) -> None:
         check = subprocess.run(
@@ -703,6 +712,64 @@ def _interactive_shell_command(command: str) -> str:
         ]
     )
     return "bash -lc " + shlex.quote(script)
+
+
+def _tag_tmux_window(window_id: str, session: SessionRecord) -> None:
+    options = {
+        "@session_control_public_id": session.public_id,
+        "@session_control_provider": session.provider,
+        "@session_control_session_id": session.session_id,
+    }
+    for name, value in options.items():
+        result = subprocess.run(
+            ["tmux", "set-option", "-w", "-t", window_id, name, value],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            err = result.stderr.decode(errors="replace").strip()
+            raise SessionActionError(f"Could not tag tmux window: {err}")
+
+
+def _kill_tmux_windows_for_session(tmux_session: str, session: SessionRecord) -> int:
+    try:
+        check = subprocess.run(
+            ["tmux", "has-session", "-t", tmux_session],
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        return 0
+    if check.returncode != 0:
+        return 0
+
+    result = subprocess.run(
+        [
+            "tmux",
+            "list-windows",
+            "-t",
+            tmux_session,
+            "-F",
+            "#{window_id}\t#{@session_control_public_id}\t"
+            "#{@session_control_provider}\t#{@session_control_session_id}",
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        err = result.stderr.decode(errors="replace").strip()
+        raise SessionActionError(f"Could not inspect tmux windows: {err}")
+
+    killed = 0
+    for line in result.stdout.decode(errors="replace").splitlines():
+        window_id, public_id, provider, session_id = (*line.split("\t"), "", "", "")[:4]
+        if public_id != session.public_id and (
+            provider != session.provider or session_id != session.session_id
+        ):
+            continue
+        kill = subprocess.run(["tmux", "kill-window", "-t", window_id], capture_output=True)
+        if kill.returncode != 0:
+            err = kill.stderr.decode(errors="replace").strip()
+            raise SessionActionError(f"Could not close tmux window {window_id}: {err}")
+        killed += 1
+    return killed
 
 
 def _remove_codex_index_entry(path: Path, session_id: str) -> None:
