@@ -3,11 +3,20 @@ set namespaceSeparator none
 class "AppConfig" as session_control.config.AppConfig {
   allowed_origins : tuple[str, ...]
   claude_root : Path
+  claude_status_command : tuple[str, ...]
+  claude_status_poll_enabled : bool
+  claude_status_poll_interval_seconds : int
+  claude_status_timeout_seconds : int
+  codex_permission_preset : str
+  codex_resume_model : str | None
   codex_root : Path
   continue_root : Path
   copilot_root : Path
   max_preview_chars : int
+  monitor_interval_seconds : float
+  monitor_targets : tuple[str, ...]
   public_origin : str | None
+  scan_cache_ttl_seconds : float
   secret_key : str
   tmux_session : str
   trash_dir : Path
@@ -15,13 +24,64 @@ class "AppConfig" as session_control.config.AppConfig {
   from_env() -> AppConfig
   provider_root(provider: str) -> Path
 }
+class "BulkDeleteResult" as session_control.actions.BulkDeleteResult {
+  deleted : tuple[DeleteResult, ...]
+  errors : tuple[str, ...]
+}
+class "BulkOpenResult" as session_control.actions.BulkOpenResult {
+  errors : tuple[str, ...]
+  opened : tuple[OpenResult, ...]
+}
+class "ClaudeStatusPoller" as session_control.claude_status.ClaudeStatusPoller {
+  command : tuple[str, ...]
+  interval_seconds
+  session_finder : Callable[[], str | None] | None
+  timeout_seconds
+  refresh() -> dict[str, Any]
+  snapshot() -> dict[str, Any] | None
+  start() -> None
+  stop() -> None
+}
+class "ConnEvent" as session_control.connection_monitor.ConnEvent {
+  kind : str
+  prior_duration_seconds : float | None
+  target : str
+  ts : datetime
+}
+class "ConnectionMonitor" as session_control.connection_monitor.ConnectionMonitor {
+  snapshot() -> dict
+  start() -> None
+  stop() -> None
+}
+class "DeduplicateResult" as session_control.actions.DeduplicateResult {
+  dry_run : bool
+  errors : tuple[str, ...]
+  groups : tuple[tuple[SessionRecord, ...], ...]
+  max_age : timedelta
+  merged : tuple[MergeResult, ...]
+  min_age : timedelta
+  scanned_count : int
+}
 class "DeleteResult" as session_control.actions.DeleteResult {
+  killed_window_count : int
   moved_count : int
   moved_to : Path
   session
 }
+class "MergeResult" as session_control.actions.MergeResult {
+  absorbed : tuple[SessionRecord, ...]
+  kept
+  moved_to : Path
+}
 class "OpenResult" as session_control.actions.OpenResult {
   session
+  window_index : int | None
+}
+class "ProbeResult" as session_control.connection_monitor.ProbeResult {
+  latency_ms : float | None
+  ok : bool
+  ts : float
+  wall_ts : datetime
 }
 class "PruneError" as session_control.actions.PruneError {
   message : str
@@ -41,6 +101,17 @@ class "PruneSkipped" as session_control.actions.PruneSkipped {
   reason : str
   session
 }
+class "RestoreCandidate" as session_control.actions.RestoreCandidate {
+  moved_at : str
+  moved_count : int
+  provider : str
+  session_id : str
+  trash_id : str
+}
+class "RestoreResult" as session_control.actions.RestoreResult {
+  candidate
+  restored_to : tuple[Path, ...]
+}
 class "ScanError" as session_control.models.ScanError {
   message : str
   provider : str
@@ -56,9 +127,14 @@ class "<color:red>SessionActionError</color>" as session_control.actions.Session
 class "SessionActionService" as session_control.actions.SessionActionService {
   config
   scanner
+  deduplicate(min_age: timedelta, max_age: timedelta) -> DeduplicateResult
   delete(public_id: str) -> DeleteResult
+  delete_many(public_ids: tuple[str, ...]) -> BulkDeleteResult
+  list_trash() -> tuple[RestoreCandidate, ...]
   open_in_webterm(public_id: str) -> OpenResult
+  open_many_in_webterm(public_ids: tuple[str, ...]) -> BulkOpenResult
   prune(older_than: timedelta) -> PruneResult
+  restore(trash_id: str) -> RestoreResult
 }
 class "SessionRecord" as session_control.models.SessionRecord {
   active : bool
@@ -82,7 +158,30 @@ class "SessionScanner" as session_control.scanner.SessionScanner {
   config
   scan(providers: tuple[str, ...] | None) -> ScanReport
 }
+class "TargetConfig" as session_control.connection_monitor.TargetConfig {
+  host : str
+  kind : str
+  name : str
+  port : int | None
+  timeout_seconds : float
+}
+class "TargetState" as session_control.connection_monitor.TargetState {
+  avg_latency_ms : float | None
+  config
+  current_ok : bool | None
+  history : deque
+  last_down_at : datetime | None
+  last_up_at : datetime | None
+  latency_ms : float | None
+  loss_pct : float
+  record(result: ProbeResult) -> ConnEvent | None
+  sparkline(tail: int) -> str
+  to_dict() -> dict
+}
+session_control.actions.RestoreResult --> session_control.actions.RestoreCandidate : candidate
+session_control.connection_monitor.TargetState --> session_control.connection_monitor.TargetConfig : config
 session_control.actions.DeleteResult --> session_control.models.SessionRecord : session
+session_control.actions.MergeResult --> session_control.models.SessionRecord : kept
 session_control.actions.OpenResult --> session_control.models.SessionRecord : session
 session_control.actions.PruneSkipped --> session_control.models.SessionRecord : session
 session_control.actions.SessionActionService --> session_control.scanner.SessionScanner : scanner

@@ -2,26 +2,43 @@
 set namespaceSeparator none
 top to bottom direction
 skinparam componentStyle rectangle
-rectangle "session_control\n0 child pkg, 7 modules\n8 python files\nexamples: __main__, actions, cli" as session_control
+rectangle "connection_monitor_tui\n1 python file" as connection_monitor_tui
+rectangle "session_control\n0 child pkg, 11 modules\n12 python files\nexamples: __main__, actions, claude_status" as session_control
 rectangle "session_control.__main__\n1 python file" as session_control.__main__
 rectangle "session_control.actions\n1 python file" as session_control.actions
+rectangle "session_control.claude_status\n1 python file" as session_control.claude_status
 rectangle "session_control.cli\n1 python file" as session_control.cli
+rectangle "session_control.codex_permissions\n1 python file" as session_control.codex_permissions
 rectangle "session_control.config\n1 python file" as session_control.config
+rectangle "session_control.connection_monitor\n1 python file" as session_control.connection_monitor
+rectangle "session_control.dedup\n1 python file" as session_control.dedup
 rectangle "session_control.models\n1 python file" as session_control.models
 rectangle "session_control.scanner\n1 python file" as session_control.scanner
 rectangle "session_control.web\n1 python file" as session_control.web
+connection_monitor_tui --> session_control.cli
+connection_monitor_tui --> session_control.config
+connection_monitor_tui --> session_control.connection_monitor
 session_control.__main__ --> session_control.cli
+session_control.actions --> session_control.codex_permissions
 session_control.actions --> session_control.config
+session_control.actions --> session_control.dedup
 session_control.actions --> session_control.models
 session_control.actions --> session_control.scanner
 session_control.cli --> session_control.actions
 session_control.cli --> session_control.config
+session_control.cli --> session_control.dedup
 session_control.cli --> session_control.scanner
 session_control.cli --> session_control.web
+session_control.config --> session_control.codex_permissions
+session_control.dedup --> session_control.models
+session_control.scanner --> session_control.codex_permissions
 session_control.scanner --> session_control.config
 session_control.scanner --> session_control.models
 session_control.web --> session_control.actions
+session_control.web --> session_control.claude_status
+session_control.web --> session_control.codex_permissions
 session_control.web --> session_control.config
+session_control.web --> session_control.connection_monitor
 session_control.web --> session_control.models
 session_control.web --> session_control.scanner
 @enduml
