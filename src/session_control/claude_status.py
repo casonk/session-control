@@ -6,7 +6,6 @@ import json
 import re
 import subprocess
 import threading
-from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -34,12 +33,10 @@ class ClaudeStatusPoller:
         command: tuple[str, ...],
         interval_seconds: int,
         timeout_seconds: int,
-        session_finder: Callable[[], str | None] | None = None,
     ):
         self.command = command
         self.interval_seconds = max(1, interval_seconds)
         self.timeout_seconds = max(1, timeout_seconds)
-        self.session_finder = session_finder
         self._lock = threading.Lock()
         self._status: dict[str, Any] | None = None
         self._stop = threading.Event()
@@ -57,13 +54,11 @@ class ClaudeStatusPoller:
 
     def refresh(self) -> dict[str, Any]:
         status = collect_claude_status(self.command, self.timeout_seconds)
-        if self.session_finder:
-            session_id = self.session_finder()
-            if session_id:
-                usage_limits = collect_claude_usage(session_id, self.timeout_seconds)
-                if usage_limits.get("ok"):
-                    status["limits_available"] = True
-                    status["usage_limits"] = usage_limits
+        if status.get("ok") and status.get("logged_in") and not status.get("limits_available"):
+            usage_limits = collect_claude_usage(self.timeout_seconds)
+            if usage_limits.get("ok"):
+                status["limits_available"] = True
+                status["usage_limits"] = usage_limits
         with self._lock:
             self._status = status
         return status
@@ -128,13 +123,12 @@ def collect_claude_status(command: tuple[str, ...], timeout_seconds: int) -> dic
     return status
 
 
-def collect_claude_usage(session_id: str, timeout_seconds: int) -> dict[str, Any]:
-    """Run /usage against a Claude session and return parsed rate-limit data."""
+def collect_claude_usage(timeout_seconds: int) -> dict[str, Any]:
+    """Run /usage in a fresh, unsaved session and return parsed rate-limit data."""
     checked_at = _now_iso()
     command = (
         "claude",
-        "--resume",
-        session_id,
+        "--no-session-persistence",
         "--print",
         "/usage",
         "--output-format",
