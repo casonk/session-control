@@ -36,3 +36,8 @@ change how future sessions work in this repo.
 - The `.actions` flex container must use `align-items: flex-end` (not the default `stretch`). Without it, the `.permission-select` label (span + select, ~56px) makes `.open-form` taller than the adjacent Copy/Review/Delete buttons (~42px), causing those buttons to stretch vertically and look malformed. `flex-end` keeps all buttons at their natural height and bottom-aligns them with the Open button.
 - `.open-form` must also use `justify-content: flex-end`. When the session card narrows enough for the flex algorithm to shrink `.open-form` below the width needed to keep the permission-select and Open button on one line, the Open button wraps to a new line inside `.open-form`. The default `justify-content: flex-start` then leaves Open left-aligned while Copy/Review/Delete (right-aligned via `.actions`'s `justify-content: flex-end`) sit on the right, creating a large unexplained gap. Adding `justify-content: flex-end` to `.open-form` right-aligns the Open button so it appears adjacent to Copy with only the normal 8px gap.
 - For the web service, use `RestartForceExitStatus=SIGTERM` alongside `Restart=on-failure` so an unexpected TERM from outside systemd does not leave the proxy backend dead until manual restart. Caddy/mTLS will otherwise surface connection failures for the configured public origin even though the unit remains enabled.
+- Multi-machine session visibility must federate a deliberately limited,
+  host-labelled inventory rather than copying provider stores or transcripts.
+  Keep session content, absolute paths, resume commands, delete targets, and
+  state-changing actions on the owning machine; aggregate only validated
+  metadata over an explicitly authenticated mTLS path.

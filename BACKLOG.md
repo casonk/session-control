@@ -11,6 +11,16 @@ and move them to Done.
 
 ## Pending
 
+- [ ] [manual:2026-10-11] After merging the multi-machine inventory PR,
+  deploy the opt-in federation receiver on the server and publisher on each
+  approved client. Update both checkouts to `main`; configure the server's
+  private federation store and a distinct owner-only token per node; expose
+  only the ingestion/read routes through the existing Caddy mTLS boundary;
+  configure the Mac publisher with its client certificate and a scheduled
+  `session-control publish-inventory`; then verify **All machines** shows both
+  hosts. Keep inventories metadata-only and remote sessions read-only—never
+  sync provider directories, transcripts, private paths, or action commands.
+
 
 ## In Progress
 
