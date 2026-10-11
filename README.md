@@ -137,6 +137,14 @@ run a sanitized Claude CLI status command. The default command is
 Claude Code releases but still does not expose usage-limit windows or reset
 percentages. If a future Claude CLI version adds limit fields to that JSON,
 session-control will surface sanitized limit/usage fields automatically.
+When authenticated and the status command has no limit fields, the poller also
+queries `/usage` in a fresh print-mode session with `--no-session-persistence`.
+It never resumes a saved conversation, so probes do not append to chat history
+or create saved sessions requiring cleanup. Unsupported or failed probes leave
+limits unavailable; there is no fallback to resuming user sessions.
+`SESSION_CONTROL_CLAUDE_STATUS_POLL_INTERVAL` controls the interval (default:
+300 seconds). Account limits can change through activity in other sessions, so
+polling does not depend on changes to any one local transcript.
 When running under systemd, set `SESSION_CONTROL_CLAUDE_STATUS_COMMAND` to an
 absolute `claude` path if the service PATH cannot find the CLI.
 

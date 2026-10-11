@@ -41,3 +41,7 @@ change how future sessions work in this repo.
   Keep session content, absolute paths, resume commands, delete targets, and
   state-changing actions on the owning machine; aggregate only validated
   metadata over an explicitly authenticated mTLS path.
+- Background Claude usage probes must never resume user conversations: use
+  a fresh print-mode session with `--no-session-persistence`, and fail without
+  falling back to a saved session. Poll account limits independently of local
+  transcript changes because other sessions can consume the same quota.

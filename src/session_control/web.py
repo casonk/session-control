@@ -53,7 +53,7 @@ def create_app(
     app_config = config or AppConfig.from_env()
     app_scanner = scanner or SessionScanner(app_config)
     app_actions = actions or SessionActionService(app_config, app_scanner)
-    app_claude_status = claude_status_poller or _claude_status_poller(app_config, app_scanner)
+    app_claude_status = claude_status_poller or _claude_status_poller(app_config)
     if app_claude_status:
         app_claude_status.start()
     app_conn_monitor = connection_monitor or _connection_monitor(app_config)
@@ -383,23 +383,14 @@ def _connection_monitor(config: AppConfig) -> ConnectionMonitor | None:
     return ConnectionMonitor(targets, interval_seconds=config.monitor_interval_seconds)
 
 
-def _claude_status_poller(config: AppConfig, scanner: SessionScanner) -> ClaudeStatusPoller | None:
+def _claude_status_poller(config: AppConfig) -> ClaudeStatusPoller | None:
     if not config.claude_status_poll_enabled:
         return None
     return ClaudeStatusPoller(
         command=config.claude_status_command,
         interval_seconds=config.claude_status_poll_interval_seconds,
         timeout_seconds=config.claude_status_timeout_seconds,
-        session_finder=lambda: _latest_claude_session_id(scanner),
     )
-
-
-def _latest_claude_session_id(scanner: SessionScanner) -> str | None:
-    report = scanner.scan(providers=("claude",))
-    for session_record in report.sessions:
-        if session_record.provider == "claude" and session_record.session_id:
-            return session_record.session_id
-    return None
 
 
 def _codex_usage_summary(sessions: tuple[SessionRecord, ...]) -> dict | None:
