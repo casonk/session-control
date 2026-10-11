@@ -15,6 +15,7 @@
           <p>{{ sessions|length }} visible session{{ '' if sessions|length == 1 else 's' }}</p>
         </div>
         <div style="display:flex;gap:8px">
+          <a class="button ghost" href="{{ url_for('federation') }}">All machines</a>
           <a class="button ghost" href="{{ url_for('connections') }}">Connections</a>
           <a class="button ghost" href="{{ url_for('index') }}">Refresh</a>
         </div>

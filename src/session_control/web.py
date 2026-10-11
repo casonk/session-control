@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hmac
 import ipaddress
 import secrets
 from collections import Counter
@@ -30,6 +31,7 @@ from session_control.codex_permissions import (
 )
 from session_control.config import AppConfig
 from session_control.connection_monitor import ConnectionMonitor, targets_from_config
+from session_control.federation import build_inventory, load_inventories, store_inventory
 from session_control.models import SessionRecord
 from session_control.scanner import PROVIDERS, SessionScanner
 
@@ -63,6 +65,10 @@ def create_app(
     @app.before_request
     def _protect_state_changing_requests() -> None:
         if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return
+        if request.path.startswith("/api/federation/v1/inventories/"):
+            # The ingestion route has separate bearer-token authentication and
+            # is normally reachable only through an mTLS Caddy route.
             return
         source = _request_source(request)
         if source and not _same_origin(source, app_config, request):
@@ -115,6 +121,49 @@ def create_app(
     def api_sessions():
         report = app_scanner.scan()
         return jsonify(report.to_dict())
+
+    @app.get("/api/federation/v1/inventory")
+    def federation_inventory():
+        return jsonify(_local_inventory(app_scanner, app_config))
+
+    @app.post("/api/federation/v1/inventories/<node_id>")
+    def federation_ingest(node_id: str):
+        if app_config.federation_store_dir is None:
+            abort(HTTPStatus.NOT_FOUND)
+        expected_token = app_config.federation_tokens.get(node_id.lower())
+        supplied = request.headers.get("Authorization", "")
+        if not expected_token or not supplied.startswith("Bearer "):
+            abort(HTTPStatus.UNAUTHORIZED)
+        if not hmac.compare_digest(supplied.removeprefix("Bearer "), expected_token):
+            abort(HTTPStatus.UNAUTHORIZED)
+        try:
+            inventory = store_inventory(
+                app_config.federation_store_dir,
+                request.get_json(force=False, silent=False),
+                expected_node_id=node_id,
+            )
+        except (OSError, ValueError):
+            abort(HTTPStatus.BAD_REQUEST, description="Invalid federation inventory.")
+        return (
+            jsonify(
+                {
+                    "ok": True,
+                    "node": inventory["node"],
+                    "session_count": len(inventory["sessions"]),
+                }
+            ),
+            HTTPStatus.CREATED,
+        )
+
+    @app.get("/federation")
+    def federation():
+        remote_inventories, inventory_errors = load_inventories(app_config.federation_store_dir)
+        return render_template(
+            "federation.html",
+            local_inventory=_local_inventory(app_scanner, app_config),
+            remote_inventories=remote_inventories,
+            inventory_errors=inventory_errors,
+        )
 
     @app.get("/api/claude/status")
     def api_claude_status():
@@ -295,6 +344,14 @@ def create_app(
         return f"{float(value):.0f}%"
 
     return app
+
+
+def _local_inventory(scanner: SessionScanner, config: AppConfig) -> dict:
+    return build_inventory(
+        scanner.scan(),
+        node_id=config.federation_node_id,
+        node_label=config.federation_node_label,
+    )
 
 
 def _filter_sessions(sessions: tuple[SessionRecord, ...], query: str) -> list[SessionRecord]:

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>All Machines — Session Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>All Machines</h1>
+          <p>Read-only federated session summaries. Remote sessions stay on their owning machine.</p>
+        </div>
+        <a class="button ghost" href="{{ url_for('index') }}">Local sessions</a>
+      </header>
+
+      {% if inventory_errors %}
+        <section class="messages" aria-live="polite">
+          {% for error in inventory_errors %}<div class="message error">{{ error }}</div>{% endfor %}
+        </section>
+      {% endif %}
+
+      {% for inventory in [local_inventory] + remote_inventories %}
+        <section class="detail-block" aria-label="{{ inventory.node.label }} session inventory">
+          <h2>{{ inventory.node.label }}</h2>
+          <p class="meta">
+            {{ inventory.sessions|length }} session{{ '' if inventory.sessions|length == 1 else 's' }}
+            · updated {{ inventory.generated_at|datetime }}
+            {% if inventory.scan_error_count %}· {{ inventory.scan_error_count }} scan warning{{ '' if inventory.scan_error_count == 1 else 's' }}{% endif %}
+          </p>
+          <div class="session-list">
+            {% for item in inventory.sessions %}
+              <article class="session">
+                <div class="session-main">
+                  <div class="session-head">
+                    <span class="provider {{ item.provider }}">{{ item.provider }}</span>
+                    {% if item.active %}<span class="status active">active</span>{% endif %}
+                  </div>
+                  <h2>{{ item.title }}</h2>
+                  <p class="meta">
+                    {{ item.updated_at|datetime }} · {{ item.message_count }} messages · {{ item.size_bytes|bytes }}
+                    {% if item.model %}· {{ item.model }}{% endif %}
+                  </p>
+                  {% if item.workspace_label %}<p class="workspace">{{ item.workspace_label }}</p>{% endif %}
+                </div>
+              </article>
+            {% else %}
+              <p class="empty">No sessions reported.</p>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+    </main>
+  </body>
+</html>

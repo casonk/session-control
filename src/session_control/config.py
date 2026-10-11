@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from session_control.codex_permissions import normalize_codex_permission_preset
@@ -33,6 +33,10 @@ class AppConfig:
     scan_cache_ttl_seconds: float = 5.0
     monitor_targets: tuple[str, ...] = ()
     monitor_interval_seconds: float = 5.0
+    federation_node_id: str = "local"
+    federation_node_label: str = "Local machine"
+    federation_store_dir: Path | None = None
+    federation_tokens: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -70,6 +74,12 @@ class AppConfig:
             scan_cache_ttl_seconds=_float_env("SESSION_CONTROL_SCAN_CACHE_TTL", 5.0),
             monitor_targets=_split_csv(os.environ.get("SESSION_CONTROL_MONITOR_TARGETS", "")),
             monitor_interval_seconds=_float_env("SESSION_CONTROL_MONITOR_INTERVAL", 5.0),
+            federation_node_id=os.environ.get("SESSION_CONTROL_FEDERATION_NODE_ID", "local"),
+            federation_node_label=os.environ.get(
+                "SESSION_CONTROL_FEDERATION_NODE_LABEL", "Local machine"
+            ),
+            federation_store_dir=_optional_path_env("SESSION_CONTROL_FEDERATION_STORE_DIR"),
+            federation_tokens=_token_map(os.environ.get("SESSION_CONTROL_FEDERATION_TOKENS", "")),
         )
 
     def provider_root(self, provider: str) -> Path:
@@ -89,8 +99,22 @@ def _path_env(name: str, default: Path) -> Path:
     return Path(value).expanduser()
 
 
+def _optional_path_env(name: str) -> Path | None:
+    value = os.environ.get(name)
+    return Path(value).expanduser() if value else None
+
+
 def _split_csv(value: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
+def _token_map(value: str) -> dict[str, str]:
+    tokens: dict[str, str] = {}
+    for item in _split_csv(value):
+        node_id, separator, token = item.partition("=")
+        if separator and node_id.strip() and token.strip():
+            tokens[node_id.strip().lower()] = token.strip()
+    return tokens
 
 
 def _truthy(value: str | None) -> bool:

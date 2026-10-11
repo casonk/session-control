@@ -7,8 +7,13 @@ import ipaddress
 import json
 import os
 import re
+import ssl
+import stat
 from datetime import timedelta
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 from session_control.actions import (
     DeduplicateResult,
@@ -20,6 +25,7 @@ from session_control.actions import (
 )
 from session_control.config import AppConfig
 from session_control.dedup import DEFAULT_SIMILARITY
+from session_control.federation import build_inventory
 from session_control.scanner import PROVIDERS, SessionScanner
 from session_control.web import create_app
 
@@ -113,6 +119,27 @@ def _build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--json", action="store_true", help="print the scan report as JSON")
     scan.add_argument("--provider", choices=PROVIDERS, action="append", help="limit scan provider")
 
+    inventory = subparsers.add_parser(
+        "inventory", help="export a metadata-only local session inventory"
+    )
+    inventory.add_argument("--json", action="store_true", help="print inventory JSON")
+    inventory.add_argument(
+        "--output", type=Path, help="write inventory JSON to this owner-only file"
+    )
+    inventory.add_argument("--provider", choices=PROVIDERS, action="append", help="limit provider")
+
+    publish = subparsers.add_parser(
+        "publish-inventory", help="publish a metadata-only inventory to a trusted aggregator"
+    )
+    publish.add_argument("--url", required=True, help="HTTPS inventory receiver URL")
+    publish.add_argument(
+        "--token-file", type=Path, required=True, help="owner-only bearer token file"
+    )
+    publish.add_argument("--ca-file", type=Path, help="CA PEM for the receiver")
+    publish.add_argument("--cert-file", type=Path, help="client certificate PEM for mTLS")
+    publish.add_argument("--key-file", type=Path, help="client private-key PEM for mTLS")
+    publish.add_argument("--provider", choices=PROVIDERS, action="append", help="limit provider")
+
     prune = subparsers.add_parser("prune", help="move old inactive sessions into trash")
     prune.add_argument(
         "--older-than",
@@ -191,6 +218,28 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"WARN {error.provider}: {error.message}")
         return 0
 
+    if args.command in {"inventory", "publish-inventory"}:
+        providers = tuple(args.provider) if args.provider else None
+        inventory = build_inventory(
+            SessionScanner(config).scan(providers=providers),
+            node_id=config.federation_node_id,
+            node_label=config.federation_node_label,
+        )
+        if args.command == "inventory":
+            payload = json.dumps(inventory, indent=2) + "\n"
+            if args.output:
+                _write_owner_only(args.output, payload)
+            if args.json or not args.output:
+                print(payload, end="")
+            return 0
+        try:
+            _publish_inventory(inventory, args)
+        except (OSError, ValueError, HTTPError, URLError) as exc:
+            print(f"ERROR: Could not publish inventory: {exc}")
+            return 1
+        print(f"Published {len(inventory['sessions'])} session summary record(s).")
+        return 0
+
     if args.command == "deduplicate":
         providers = tuple(args.provider) if args.provider else None
         result = SessionActionService(config).deduplicate(
@@ -250,6 +299,50 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.error(f"unknown command: {args.command}")
     return 2
+
+
+def _write_owner_only(path: Path, payload: str) -> None:
+    path = path.expanduser()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+    os.chmod(path, 0o600)
+
+
+def _publish_inventory(inventory: dict, args: argparse.Namespace) -> None:
+    target = urlsplit(args.url)
+    if target.scheme != "https" or not target.netloc or target.username or target.password:
+        raise ValueError("receiver URL must be an HTTPS URL without embedded credentials")
+    token = _read_owner_only_token(args.token_file)
+    context = ssl.create_default_context(cafile=str(args.ca_file) if args.ca_file else None)
+    if bool(args.cert_file) != bool(args.key_file):
+        raise ValueError("--cert-file and --key-file must be supplied together")
+    if args.cert_file and args.key_file:
+        context.load_cert_chain(str(args.cert_file), str(args.key_file))
+    request = Request(
+        args.url,
+        data=json.dumps(inventory, separators=(",", ":")).encode(),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urlopen(request, context=context, timeout=15) as response:
+        if response.status not in {200, 201, 204}:
+            raise ValueError(f"receiver returned HTTP {response.status}")
+
+
+def _read_owner_only_token(path: Path) -> str:
+    path = path.expanduser()
+    details = path.stat()
+    if not stat.S_ISREG(details.st_mode) or details.st_mode & 0o077:
+        raise ValueError("token file must be a regular owner-only file")
+    token = path.read_text(encoding="utf-8").strip()
+    if not token:
+        raise ValueError("token file is empty")
+    return token
 
 
 def _print_dedup_result(result: DeduplicateResult) -> None:

@@ -66,6 +66,31 @@ Set `SESSION_CONTROL_CODEX_RESUME_MODEL` to force a known-good Codex model for
 web-launched resumes when the global Codex default is not supported by the
 machine's current auth mode.
 
+## Multiple machines
+
+Session stores remain local to their owning machine. Do not synchronize raw
+provider directories or transcripts. Instead, a node can export a deliberately
+restricted inventory containing only a title, provider, timestamp, workspace
+basename, size/count metadata, and model:
+
+```bash
+session-control inventory --json
+session-control publish-inventory \
+  --url https://session-control.example.internal/api/federation/v1/inventories/air \
+  --token-file ~/.config/session-control/federation-air.token \
+  --ca-file ~/.config/wiring-harness/certs/ca.crt \
+  --cert-file ~/.config/wiring-harness/certs/client.crt \
+  --key-file ~/.config/wiring-harness/certs/client.key
+```
+
+The central node enables `SESSION_CONTROL_FEDERATION_STORE_DIR` and assigns a
+distinct owner-only token to each approved node in
+`SESSION_CONTROL_FEDERATION_TOKENS`. Its **All machines** page displays local
+and received inventories by host. Remote records are read-only: opening,
+resuming, deleting, and restoring remain local operations. Put the receiver
+behind the existing Caddy mTLS route; the per-node bearer token is an additional
+authorization check, not a substitute for mTLS.
+
 Codex itself can set permission defaults in `~/.codex/config.toml`, for example
 `sandbox_mode = "danger-full-access"` and `approval_policy = "never"`, or per
 launch with `codex resume --sandbox ... --ask-for-approval ...`. For Codex
