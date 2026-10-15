@@ -53,6 +53,11 @@ class SessionScanner:
             return report
         return self._do_scan(providers)
 
+    def invalidate(self) -> None:
+        """Drop cached scan results after session files change on disk."""
+        with self._lock:
+            self._cache.clear()
+
     def _do_scan(self, providers: tuple[str, ...] | None = None) -> ScanReport:
         selected = providers or PROVIDERS
         sessions: list[SessionRecord] = []
