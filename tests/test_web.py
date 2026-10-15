@@ -220,6 +220,25 @@ def test_delete_route_removes_session(app_config):
     assert not SessionScanner(app_config).scan(providers=("continue",)).sessions
 
 
+def test_delete_redirect_does_not_show_cached_session(app_config):
+    seed_continue(app_config.continue_root)
+    app = create_app(app_config)
+    client = app.test_client()
+    token = _csrf(client)
+    session = SessionScanner(app_config).scan(providers=("continue",)).sessions[0]
+    assert session.public_id in client.get("/").get_data(as_text=True)
+
+    response = client.post(
+        f"/sessions/{session.public_id}/delete",
+        data={"csrf_token": token},
+        headers={"Origin": "http://localhost"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert session.public_id not in response.get_data(as_text=True)
+
+
 def test_bulk_delete_route_removes_selected_sessions(app_config):
     seed_continue(app_config.continue_root)
     seed_codex(app_config.codex_root)

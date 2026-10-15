@@ -285,6 +285,8 @@ class SessionActionService:
             _remove_empty_trash_dirs(batch_dir, self.config.trash_dir)
         except OSError as exc:
             raise SessionActionError(f"Could not restore session: {exc}") from exc
+        finally:
+            self._invalidate_scan_cache()
         return RestoreResult(candidate=candidate, restored_to=tuple(restored))
 
     def deduplicate(
@@ -436,22 +438,30 @@ class SessionActionService:
         killed_window_count = _kill_tmux_windows_for_session(self.config.tmux_session, session)
         _write_restore_manifest(session, provider_root, batch_dir, target_mappings)
         moved = 0
-        for target, destination in target_mappings:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(target), str(destination))
-            moved += 1
-        if session.provider == "codex":
-            _remove_codex_index_entry(provider_root / "session_index.jsonl", session.session_id)
-        if session.provider == "continue":
-            _remove_continue_index_entry(
-                provider_root / "sessions" / "sessions.json", session.session_id
-            )
+        try:
+            for target, destination in target_mappings:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(target), str(destination))
+                moved += 1
+            if session.provider == "codex":
+                _remove_codex_index_entry(provider_root / "session_index.jsonl", session.session_id)
+            if session.provider == "continue":
+                _remove_continue_index_entry(
+                    provider_root / "sessions" / "sessions.json", session.session_id
+                )
+        finally:
+            self._invalidate_scan_cache()
         return DeleteResult(
             session=session,
             moved_to=batch_dir,
             moved_count=moved,
             killed_window_count=killed_window_count,
         )
+
+    def _invalidate_scan_cache(self) -> None:
+        invalidate = getattr(self.scanner, "invalidate", None)
+        if callable(invalidate):
+            invalidate()
 
     def _ensure_tmux_session(self) -> None:
         check = subprocess.run(
