@@ -12,6 +12,10 @@ class "AppConfig" as session_control.config.AppConfig {
   codex_root : Path
   continue_root : Path
   copilot_root : Path
+  federation_node_id : str
+  federation_node_label : str
+  federation_store_dir : Path | None
+  federation_tokens : dict[str, str]
   max_preview_chars : int
   monitor_interval_seconds : float
   monitor_targets : tuple[str, ...]
@@ -35,7 +39,6 @@ class "BulkOpenResult" as session_control.actions.BulkOpenResult {
 class "ClaudeStatusPoller" as session_control.claude_status.ClaudeStatusPoller {
   command : tuple[str, ...]
   interval_seconds
-  session_finder : Callable[[], str | None] | None
   timeout_seconds
   refresh() -> dict[str, Any]
   snapshot() -> dict[str, Any] | None
