@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-10-16
+
 - Added a `session-control prune` command for delete-to-trash cleanup of
   inactive sessions older than a configured age.
 - Added a clockwork manifest template and installer for daily 180-day pruning.
