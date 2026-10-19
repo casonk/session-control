@@ -159,6 +159,7 @@ class "SessionRecord" as session_control.models.SessionRecord {
 }
 class "SessionScanner" as session_control.scanner.SessionScanner {
   config
+  invalidate() -> None
   scan(providers: tuple[str, ...] | None) -> ScanReport
 }
 class "TargetConfig" as session_control.connection_monitor.TargetConfig {
