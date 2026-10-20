@@ -51,3 +51,7 @@ change how future sessions work in this repo.
   retain its result in the parent and review short subagents through the scoped
   dry-run prune before moving them to trash. Recorded event span is a review
   signal, not proof of completion or dispensability.
+- A chat-directed self termination must match the exact provider thread ID from
+  the environment. Moving a local transcript to trash does not close a hosted
+  chat or prevent its process from writing new artifacts. Keep the distinction
+  explicit and rotate raw trash separately from metadata-only coverage records.

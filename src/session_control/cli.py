@@ -228,6 +228,13 @@ def _build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--list", action="store_true", help="list restorable trash entries")
     restore.add_argument("--json", action="store_true", help="print restore data as JSON")
 
+    subparsers.add_parser(
+        "terminate-current",
+        help="move this Codex thread to trash using CODEX_THREAD_ID",
+    )
+    rotate = subparsers.add_parser("rotate", help="expire old trash and digest records")
+    rotate.add_argument("--dry-run", action="store_true", help="preview expiry")
+
     web = subparsers.add_parser("web", help="run the private web UI")
     web.add_argument("--host", default=os.environ.get("SESSION_CONTROL_HOST", "127.0.0.1"))
     web.add_argument(
@@ -324,7 +331,28 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(_prune_result_to_dict(result), indent=2))
         else:
             _print_prune_result(result, args.older_than)
+        if not args.dry_run:
+            trash_count, digest_count = SessionActionService(config).rotate()
+            if not args.json:
+                print(f"Expired {trash_count} trash entries and {digest_count} digest records.")
         return 1 if result.errors else 0
+
+    if args.command == "terminate-current":
+        try:
+            result = SessionActionService(config).terminate_current(
+                os.environ.get("CODEX_THREAD_ID", "")
+            )
+        except SessionActionError as exc:
+            print(f"ERROR: {exc}")
+            return 1
+        print(f"Moved current Codex session to trash: {result.moved_count} file(s).")
+        return 0
+
+    if args.command == "rotate":
+        trash_count, digest_count = SessionActionService(config).rotate(dry_run=args.dry_run)
+        verb = "Would expire" if args.dry_run else "Expired"
+        print(f"{verb} {trash_count} trash entries and {digest_count} digest records.")
+        return 0
 
     if args.command == "restore":
         service = SessionActionService(config)

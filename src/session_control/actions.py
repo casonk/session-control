@@ -17,6 +17,7 @@ from session_control.codex_permissions import (
 )
 from session_control.config import AppConfig
 from session_control.dedup import DEFAULT_SIMILARITY, find_duplicate_groups
+from session_control.digests import DigestStore
 from session_control.models import ScanError, SessionRecord
 from session_control.scanner import SessionScanner
 
@@ -220,7 +221,20 @@ class SessionActionService:
 
     def delete(self, public_id: str) -> DeleteResult:
         session = self._find(public_id)
-        return self._delete_session(session)
+        return self._delete_session(session, reason="delete")
+
+    def terminate_current(self, session_id: str) -> DeleteResult:
+        """Remove only the exact Codex thread identified by the caller environment."""
+        if not session_id:
+            raise SessionActionError("CODEX_THREAD_ID is required to identify this session.")
+        matches = [
+            item
+            for item in self.scanner.scan(providers=("codex",)).sessions
+            if item.session_id == session_id
+        ]
+        if len(matches) != 1:
+            raise SessionActionError("Current Codex session was not found uniquely.")
+        return self._delete_session(matches[0], reason="self-terminate", kill_windows=False)
 
     def delete_many(self, public_ids: tuple[str, ...]) -> BulkDeleteResult:
         deduped = _dedupe(public_ids)
@@ -232,7 +246,7 @@ class SessionActionService:
             if session is None:
                 continue
             try:
-                deleted.append(self._delete_session(session))
+                deleted.append(self._delete_session(session, reason="delete"))
             except SessionActionError as exc:
                 errors.append(f"{public_id}: {exc}")
         return BulkDeleteResult(deleted=tuple(deleted), errors=tuple(errors))
@@ -242,6 +256,8 @@ class SessionActionService:
             return ()
         candidates: list[RestoreCandidate] = []
         for manifest_path in self.config.trash_dir.rglob(".session-control-restore.json"):
+            if manifest_path.is_symlink():
+                continue
             try:
                 candidate = _restore_candidate_from_manifest(manifest_path, self.config.trash_dir)
             except (OSError, ValueError, json.JSONDecodeError):
@@ -375,6 +391,10 @@ class SessionActionService:
                 _remove_continue_index_entry(
                     provider_root / "sessions" / "sessions.json", session.session_id
                 )
+            try:
+                self.digest_store.record(session, reason="merge")
+            except OSError as exc:
+                raise SessionActionError(f"Could not record merged session: {exc}") from exc
 
         return MergeResult(kept=kept, absorbed=tuple(absorbed), moved_to=batch_dir)
 
@@ -418,7 +438,7 @@ class SessionActionService:
         if not dry_run:
             for session in eligible:
                 try:
-                    deleted.append(self._delete_session(session))
+                    deleted.append(self._delete_session(session, reason="prune"))
                 except SessionActionError as exc:
                     errors.append(
                         PruneError(provider=session.provider, session=session, message=str(exc))
@@ -435,7 +455,9 @@ class SessionActionService:
             short_subagent_cutoff=short_cutoff,
         )
 
-    def _delete_session(self, session: SessionRecord) -> DeleteResult:
+    def _delete_session(
+        self, session: SessionRecord, *, reason: str = "delete", kill_windows: bool = True
+    ) -> DeleteResult:
         if session.active:
             raise SessionActionError("Refusing to delete a session that appears to be active.")
         provider_root = self.config.provider_root(session.provider)
@@ -447,7 +469,11 @@ class SessionActionService:
             if not _is_under(target, provider_root):
                 raise SessionActionError(f"Refusing to delete path outside provider root: {target}")
             target_mappings.append((target, batch_dir / target.name))
-        killed_window_count = _kill_tmux_windows_for_session(self.config.tmux_session, session)
+        if not target_mappings:
+            raise SessionActionError("Session files were not found. Refresh and try again.")
+        killed_window_count = (
+            _kill_tmux_windows_for_session(self.config.tmux_session, session) if kill_windows else 0
+        )
         _write_restore_manifest(session, provider_root, batch_dir, target_mappings)
         moved = 0
         try:
@@ -461,6 +487,9 @@ class SessionActionService:
                 _remove_continue_index_entry(
                     provider_root / "sessions" / "sessions.json", session.session_id
                 )
+            self.digest_store.record(session, reason=reason)
+        except OSError as exc:
+            raise SessionActionError(f"Could not finish session removal: {exc}") from exc
         finally:
             self._invalidate_scan_cache()
         return DeleteResult(
@@ -469,6 +498,33 @@ class SessionActionService:
             moved_count=moved,
             killed_window_count=killed_window_count,
         )
+
+    @property
+    def digest_store(self) -> DigestStore:
+        return DigestStore(self.config.digest_dir or self.config.trash_dir.parent / "digests")
+
+    def rotate(self, *, dry_run: bool = False) -> tuple[int, int]:
+        """Expire validated restorable trash entries and aged digest records."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self.config.trash_retention_days)
+        trash_count = 0
+        for candidate in self.list_trash():
+            try:
+                batch = _trash_batch_path(self.config.trash_dir, candidate.trash_id)
+                if any(part.is_symlink() for part in (batch, batch.parent, batch.parent.parent)):
+                    continue
+                moved = datetime.strptime(candidate.trash_id.split("/")[0], "%Y%m%dT%H%M%SZ")
+                if moved.replace(tzinfo=timezone.utc) >= cutoff:
+                    continue
+                trash_count += 1
+                if not dry_run:
+                    shutil.rmtree(batch)
+                    _remove_empty_trash_dirs(batch.parent, self.config.trash_dir)
+            except (OSError, ValueError):
+                continue
+        digests = self.digest_store.rotate(
+            timedelta(days=self.config.digest_retention_days), dry_run=dry_run
+        )
+        return trash_count, digests
 
     def _invalidate_scan_cache(self) -> None:
         invalidate = getattr(self.scanner, "invalidate", None)

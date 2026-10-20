@@ -40,6 +40,13 @@ session-control/
 5. Refuse to delete sessions with provider lock files that indicate live use.
 6. When provider storage formats change, add or update fixtures in `tests/`
    before changing scanner behavior.
+7. If the user clearly commands this current chat to end and be deleted (for
+   example, "kill this session", "delete this session", or "destroy this
+   session"), run `session-control terminate-current` from this chat, report
+   the result briefly, and end the turn. Do not trigger on quoted examples or
+   requests to implement or discuss the command. The command requires the
+   exact `CODEX_THREAD_ID` supplied by Codex. It moves local files to trash;
+   it cannot close a hosted chat thread or remove remote records.
 
 ## Agent Memory
 
@@ -81,6 +88,14 @@ List and restore a newly trashed session without overwriting an existing path:
 ```bash
 session-control restore --list
 session-control restore 20260827T120000Z/continue/<session-id>
+```
+
+End this Codex chat's local session and preview or run artifact rotation:
+
+```bash
+session-control terminate-current
+session-control rotate --dry-run
+session-control rotate
 ```
 
 Install the user service:
