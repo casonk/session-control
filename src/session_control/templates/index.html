@@ -132,6 +132,15 @@
           </select>
         </label>
         <label>
+          <span>Session origin</span>
+          <select name="origin">
+            <option value="">All sessions</option>
+            <option value="subagent" {% if selected_origin == 'subagent' %}selected{% endif %}>Subagents</option>
+            <option value="short_subagent" {% if selected_origin == 'short_subagent' %}selected{% endif %}>Short subagents</option>
+            <option value="other" {% if selected_origin == 'other' %}selected{% endif %}>Other sessions</option>
+          </select>
+        </label>
+        <label>
           <span>Search</span>
           <input name="q" value="{{ query }}" placeholder="title, workspace, prompt, id">
         </label>
@@ -174,6 +183,8 @@
             <div class="session-main">
               <div class="session-head">
                 <span class="provider {{ item.provider }}">{{ item.provider }}</span>
+                {% if item.is_subagent %}<span class="status subagent">subagent</span>{% endif %}
+                {% if item.is_short_subagent %}<span class="status short-subagent">short: review cleanup</span>{% endif %}
                 {% if item.active %}<span class="status active">active</span>{% endif %}
               </div>
               <h2><a href="{{ url_for('detail', public_id=item.public_id) }}">{{ item.title }}</a></h2>

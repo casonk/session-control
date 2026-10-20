@@ -41,6 +41,62 @@ def test_scanner_can_limit_provider(app_config):
     assert [session.provider for session in report.sessions] == ["claude"]
 
 
+def test_codex_subagent_source_is_identified(app_config):
+    seed_codex(app_config.codex_root, source={"subAgent": {"thread_spawn": {}}})
+
+    session = SessionScanner(app_config).scan(providers=("codex",)).sessions[0]
+
+    assert session.is_subagent is True
+    assert session.to_dict()["is_subagent"] is True
+
+
+def test_codex_agent_role_is_identified(app_config):
+    seed_codex(app_config.codex_root, agent_role="explorer")
+
+    session = SessionScanner(app_config).scan(providers=("codex",)).sessions[0]
+
+    assert session.is_subagent is True
+
+
+def test_claude_sidechain_is_identified(app_config):
+    seed_claude(app_config.claude_root, subagent=True)
+
+    session = SessionScanner(app_config).scan(providers=("claude",)).sessions[0]
+
+    assert session.is_subagent is True
+
+
+def test_regular_sessions_are_not_labeled_subagents(app_config):
+    seed_codex(app_config.codex_root, source="vscode")
+    seed_claude(app_config.claude_root)
+
+    report = SessionScanner(app_config).scan()
+
+    assert all(not session.is_subagent for session in report.sessions)
+
+
+def test_short_subagent_requires_a_brief_recorded_span(app_config):
+    seed_codex(
+        app_config.codex_root, source={"subAgent": {}}, last_event_time="2026-04-01T12:04:00Z"
+    )
+
+    session = SessionScanner(app_config).scan(providers=("codex",)).sessions[0]
+
+    assert session.is_short_subagent is True
+    assert session.to_dict()["is_short_subagent"] is True
+
+
+def test_long_subagent_is_not_a_short_cleanup_candidate(app_config):
+    seed_codex(
+        app_config.codex_root, source={"subAgent": {}}, last_event_time="2026-04-01T12:06:00Z"
+    )
+
+    session = SessionScanner(app_config).scan(providers=("codex",)).sessions[0]
+
+    assert session.is_subagent is True
+    assert session.is_short_subagent is False
+
+
 def test_scanner_reports_continue_schema_drift_without_hiding_other_providers(app_config):
     seed_codex(app_config.codex_root)
     sessions_root = app_config.continue_root / "sessions"

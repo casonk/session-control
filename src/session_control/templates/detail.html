@@ -11,7 +11,7 @@
     <main class="shell detail-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">{{ session.provider }} · {{ session.updated_at|datetime }}</p>
+          <p class="eyebrow">{{ session.provider }}{% if session.is_subagent %} · subagent{% endif %} · {{ session.updated_at|datetime }}</p>
           <h1>{{ session.title }}</h1>
         </div>
         <a class="button ghost" href="{{ url_for('index') }}">Back</a>
@@ -43,6 +43,10 @@
             <div><dt>Updated</dt><dd>{{ session.updated_at|datetime }}</dd></div>
             <div><dt>Messages</dt><dd>{{ session.message_count }}</dd></div>
             <div><dt>Size</dt><dd>{{ session.size_bytes|bytes }}</dd></div>
+            <div><dt>Origin</dt><dd>{{ 'Subagent' if session.is_subagent else 'Other or unknown' }}</dd></div>
+            {% if session.is_short_subagent %}
+              <div><dt>Cleanup</dt><dd>Short subagent: at most five minutes of recorded activity. Review before deleting.</dd></div>
+            {% endif %}
             {% if session.provider == 'codex' %}
               <div><dt>Permissions</dt><dd>{{ session.metadata.permission_summary or 'not recorded' }}</dd></div>
             {% endif %}

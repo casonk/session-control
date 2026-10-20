@@ -59,6 +59,29 @@ def test_index_renders_sessions_and_resume_command(app_config):
     assert "cn --fork 9f4b464d-495f-432d-8d16-31aa4e7ac7ea" in text
 
 
+def test_subagent_badge_and_origin_filter(app_config):
+    seed_codex(app_config.codex_root, source={"subAgent": {"thread_spawn": {}}})
+    seed_claude(app_config.claude_root)
+    client = create_app(app_config).test_client()
+
+    all_sessions = client.get("/").get_data(as_text=True)
+    subagents = client.get("/?origin=subagent").get_data(as_text=True)
+    short_subagents = client.get("/?origin=short_subagent").get_data(as_text=True)
+    others = client.get("/?origin=other").get_data(as_text=True)
+    combined = client.get("/?provider=codex&origin=subagent&q=downloader").get_data(as_text=True)
+
+    assert 'class="status subagent">subagent</span>' in all_sessions
+    assert "Fix statement downloader" in subagents
+    assert 'class="status short-subagent">short: review cleanup</span>' in short_subagents
+    assert "Fix statement downloader" in short_subagents
+    assert "Create the local LLM service" not in short_subagents
+    assert "Create the local LLM service" not in subagents
+    assert "Create the local LLM service" in others
+    assert "Fix statement downloader" not in others
+    assert "Fix statement downloader" in combined
+    assert 'value="subagent" selected' in subagents
+
+
 def test_index_renders_provider_schema_drift_errors(app_config):
     sessions_root = app_config.continue_root / "sessions"
     write_json(sessions_root / "sessions.json", {"schema": "v2"})

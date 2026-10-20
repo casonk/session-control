@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,24 @@ class SessionRecord:
         raw = f"{self.provider}\0{self.session_id}\0{self.primary_path}".encode()
         return hashlib.sha256(raw).hexdigest()[:20]
 
+    @property
+    def is_subagent(self) -> bool:
+        return self.metadata.get("is_subagent") is True
+
+    @property
+    def is_short_subagent(self) -> bool:
+        if not self.is_subagent:
+            return False
+        try:
+            created = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
+            last_event = datetime.fromisoformat(
+                str(self.metadata["last_event_at"]).replace("Z", "+00:00")
+            )
+            seconds = (last_event - created).total_seconds()
+        except (KeyError, TypeError, ValueError):
+            return False
+        return 0 <= seconds <= 300
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "public_id": self.public_id,
@@ -46,6 +65,8 @@ class SessionRecord:
             "preview": self.preview,
             "resume_command": self.resume_command,
             "active": self.active,
+            "is_subagent": self.is_subagent,
+            "is_short_subagent": self.is_short_subagent,
             "metadata": self.metadata,
         }
 

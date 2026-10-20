@@ -80,10 +80,11 @@ def create_app(
     @app.get("/")
     def index():
         selected_provider = request.args.get("provider", "").strip()
+        selected_origin = request.args.get("origin", "").strip()
         query = request.args.get("q", "").strip()
         providers = (selected_provider,) if selected_provider in PROVIDERS else None
         report = app_scanner.scan(providers=providers)
-        sessions = _filter_sessions(report.sessions, query)
+        sessions = _filter_sessions(report.sessions, query, selected_origin)
         counts = Counter(session.provider for session in report.sessions)
         return render_template(
             "index.html",
@@ -92,6 +93,7 @@ def create_app(
             providers=PROVIDERS,
             counts=counts,
             selected_provider=selected_provider,
+            selected_origin=selected_origin,
             query=query,
             codex_usage=_codex_usage_summary(report.sessions),
             claude_usage=_claude_usage_summary(report.sessions),
@@ -354,17 +356,26 @@ def _local_inventory(scanner: SessionScanner, config: AppConfig) -> dict:
     )
 
 
-def _filter_sessions(sessions: tuple[SessionRecord, ...], query: str) -> list[SessionRecord]:
-    if not query:
-        return list(sessions)
+def _filter_sessions(
+    sessions: tuple[SessionRecord, ...], query: str, origin: str = ""
+) -> list[SessionRecord]:
     needle = query.lower()
     return [
         item
         for item in sessions
-        if needle in item.title.lower()
-        or needle in item.workspace.lower()
-        or needle in item.preview.lower()
-        or needle in item.session_id.lower()
+        if (
+            origin not in {"subagent", "short_subagent", "other"}
+            or (origin == "subagent" and item.is_subagent)
+            or (origin == "short_subagent" and item.is_short_subagent)
+            or (origin == "other" and not item.is_subagent)
+        )
+        and (
+            not needle
+            or needle in item.title.lower()
+            or needle in item.workspace.lower()
+            or needle in item.preview.lower()
+            or needle in item.session_id.lower()
+        )
     ]
 
 

@@ -21,6 +21,9 @@ def seed_codex(
     approval_policy: str = "",
     sandbox_mode: str = "",
     token_count: bool = False,
+    source=None,
+    agent_role: str = "",
+    last_event_time: str = "2026-04-01T12:05:00Z",
 ) -> Path:
     write_jsonl(
         root / "session_index.jsonl",
@@ -42,6 +45,8 @@ def seed_codex(
                 "timestamp": "2026-04-01T12:00:00Z",
                 "cwd": "/workspace/example-project",
                 "originator": "codex_cli",
+                **({"source": source} if source is not None else {}),
+                **({"agent_role": agent_role} if agent_role else {}),
             },
         },
     ]
@@ -93,7 +98,7 @@ def seed_codex(
         )
     rows.append(
         {
-            "timestamp": "2026-04-01T12:05:00Z",
+            "timestamp": last_event_time,
             "type": "response_item",
             "payload": {
                 "type": "message",
@@ -110,8 +115,14 @@ def seed_claude(
     root: Path,
     session_id: str = "c7df09f0-b9f2-4563-853e-f64fd095128f",
     token_count: bool = False,
+    subagent: bool = False,
 ) -> Path:
-    session_path = root / "projects" / "-workspace-crew-chief" / f"{session_id}.jsonl"
+    project = root / "projects" / "-workspace-crew-chief"
+    session_path = (
+        project / session_id / "subagents" / f"agent-{session_id}.jsonl"
+        if subagent
+        else project / f"{session_id}.jsonl"
+    )
     rows = [
         {"type": "permission-mode", "permissionMode": "default", "sessionId": session_id},
         {
@@ -119,6 +130,7 @@ def seed_claude(
             "timestamp": "2026-04-02T10:00:00Z",
             "sessionId": session_id,
             "cwd": "/workspace/crew-chief",
+            **({"isSidechain": True, "agentId": "synthetic-agent"} if subagent else {}),
             "message": {"role": "user", "content": "Create the local LLM service"},
         },
     ]

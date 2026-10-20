@@ -10,6 +10,7 @@ import re
 import ssl
 import stat
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -111,6 +112,34 @@ def _duration_days(value: timedelta) -> str:
     return f"{seconds}s"
 
 
+def _relative_short_subagent_age(
+    baseline: timedelta, *, percent: str | None = None, multiplier: str | None = None
+) -> timedelta | None:
+    if percent is None and multiplier is None:
+        return None
+    if percent is not None and multiplier is not None:
+        raise argparse.ArgumentTypeError("Choose a percentage or a multiplier, not both.")
+    raw = str(percent if percent is not None else multiplier).strip().lower()
+    suffix = "%" if percent is not None else "x"
+    if raw.endswith(suffix):
+        raw = raw[:-1].strip()
+    try:
+        factor = Decimal(raw)
+    except InvalidOperation as exc:
+        raise argparse.ArgumentTypeError("Use a number such as 25% or 4x.") from exc
+    if not factor.is_finite() or factor <= 0:
+        raise argparse.ArgumentTypeError("Percentage or multiplier must be positive and finite.")
+    if percent is not None and factor > 100:
+        raise argparse.ArgumentTypeError("Percentage must be at most 100%.")
+    if multiplier is not None and factor < 1:
+        raise argparse.ArgumentTypeError("Multiplier must be at least 1x.")
+    ratio = factor / 100 if percent is not None else 1 / factor
+    age = timedelta(seconds=float(Decimal(str(baseline.total_seconds())) * ratio))
+    if age <= timedelta(0):
+        raise argparse.ArgumentTypeError("Calculated short subagent age is too small.")
+    return age
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="session-control")
     subparsers = parser.add_subparsers(dest="command")
@@ -148,6 +177,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="prune sessions whose last activity is older than this age (default: 180d)",
     )
     prune.add_argument("--provider", choices=PROVIDERS, action="append", help="limit provider")
+    relative_age = prune.add_mutually_exclusive_group()
+    relative_age.add_argument(
+        "--short-subagent-percent",
+        metavar="PERCENT",
+        help="prune short subagents at this percentage of --older-than (e.g. 25%%)",
+    )
+    relative_age.add_argument(
+        "--short-subagent-multiplier",
+        metavar="MULTIPLIER",
+        help="prune short subagents this many times sooner (e.g. 4x)",
+    )
+    prune.add_argument(
+        "--short-subagents-only",
+        action="store_true",
+        help="limit cleanup to subagents with at most five minutes of recorded activity",
+    )
     prune.add_argument("--dry-run", action="store_true", help="show what would be pruned")
     prune.add_argument("--json", action="store_true", help="print the prune report as JSON")
 
@@ -257,10 +302,23 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "prune":
         providers = tuple(args.provider) if args.provider else None
+        percent = args.short_subagent_percent
+        multiplier = args.short_subagent_multiplier
+        if percent is None and multiplier is None:
+            percent = os.environ.get("SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_PERCENT")
+            multiplier = os.environ.get("SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_MULTIPLIER")
+        try:
+            short_subagent_age = _relative_short_subagent_age(
+                args.older_than, percent=percent, multiplier=multiplier
+            )
+        except argparse.ArgumentTypeError as exc:
+            parser.error(str(exc))
         result = SessionActionService(config).prune(
             args.older_than,
             providers=providers,
             dry_run=args.dry_run,
+            short_subagents_only=args.short_subagents_only,
+            short_subagent_age=short_subagent_age,
         )
         if args.json:
             print(json.dumps(_prune_result_to_dict(result), indent=2))
@@ -391,10 +449,18 @@ def _dedup_result_to_dict(result: DeduplicateResult) -> dict:
 def _print_prune_result(result: PruneResult, older_than: timedelta) -> None:
     action = "Would delete" if result.dry_run else "Deleted"
     affected_count = len(result.eligible) if result.dry_run else len(result.deleted)
-    print(
-        f"{action} {affected_count} session(s) older than {_duration_days(older_than)} "
-        f"(cutoff {result.cutoff.isoformat().replace('+00:00', 'Z')})."
-    )
+    standard_cutoff = result.cutoff.isoformat().replace("+00:00", "Z")
+    if result.short_subagent_cutoff:
+        short_age = result.short_subagent_cutoff - result.cutoff
+        short_cutoff = result.short_subagent_cutoff.isoformat().replace("+00:00", "Z")
+        print(f"{action} {affected_count} session(s).")
+        print(f"Standard retention: {_duration_days(older_than)} (cutoff {standard_cutoff}).")
+        print(f"Short subagents: {_duration_days(older_than - short_age)} (cutoff {short_cutoff}).")
+    else:
+        print(
+            f"{action} {affected_count} session(s) older than {_duration_days(older_than)} "
+            f"(cutoff {standard_cutoff})."
+        )
     if result.skipped:
         print(f"Skipped {len(result.skipped)} old active session(s).")
     for deleted in result.deleted:
@@ -417,6 +483,11 @@ def _print_prune_result(result: PruneResult, older_than: timedelta) -> None:
 def _prune_result_to_dict(result: PruneResult) -> dict:
     return {
         "cutoff": result.cutoff.isoformat().replace("+00:00", "Z"),
+        "short_subagent_cutoff": (
+            result.short_subagent_cutoff.isoformat().replace("+00:00", "Z")
+            if result.short_subagent_cutoff
+            else None
+        ),
         "dry_run": result.dry_run,
         "scanned_count": result.scanned_count,
         "eligible_count": len(result.eligible),

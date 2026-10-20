@@ -129,6 +129,8 @@ def _session_summary(session: SessionRecord, node_id: str) -> dict[str, Any]:
         "message_count": max(0, int(session.message_count)),
         "size_bytes": max(0, int(session.size_bytes)),
         "active": bool(session.active),
+        "is_subagent": session.is_subagent,
+        "is_short_subagent": session.is_short_subagent,
         "model": _clean_text(session.metadata.get("model"), 120),
     }
 
@@ -150,6 +152,8 @@ def _validate_session(value: Any) -> dict[str, Any]:
         "message_count": _nonnegative_int(value.get("message_count")),
         "size_bytes": _nonnegative_int(value.get("size_bytes")),
         "active": bool(value.get("active")),
+        "is_subagent": value.get("is_subagent") is True,
+        "is_short_subagent": value.get("is_short_subagent") is True,
         "model": _clean_text(value.get("model"), 120),
     }
 
