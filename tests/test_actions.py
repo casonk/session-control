@@ -260,6 +260,71 @@ def test_prune_dry_run_reports_old_sessions_without_deleting(app_config):
     assert [item["sessionId"] for item in index] == ["11111111-1111-4111-8111-111111111111"]
 
 
+def test_prune_can_target_only_aged_short_subagents(app_config):
+    short_path = seed_codex(
+        app_config.codex_root,
+        session_id="11111111-1111-4111-8111-111111111111",
+        source={"subAgent": {}},
+        last_event_time="2026-04-01T12:04:00Z",
+    )
+    long_path = seed_codex(
+        app_config.codex_root,
+        session_id="22222222-2222-4222-8222-222222222222",
+        source={"subAgent": {}},
+        last_event_time="2026-04-01T12:06:00Z",
+    )
+    regular_path = seed_codex(
+        app_config.codex_root,
+        session_id="33333333-3333-4333-8333-333333333333",
+    )
+
+    result = SessionActionService(app_config).prune(
+        timedelta(days=1),
+        providers=("codex",),
+        short_subagents_only=True,
+        now=datetime(2026, 4, 3, tzinfo=timezone.utc),
+    )
+
+    assert [item.session.session_id for item in result.deleted] == [
+        "11111111-1111-4111-8111-111111111111"
+    ]
+    assert not short_path.exists()
+    assert long_path.exists()
+    assert regular_path.exists()
+    assert (result.deleted[0].moved_to / short_path.name).exists()
+
+
+def test_prune_uses_relative_age_only_for_short_subagents(app_config):
+    seed_codex(
+        app_config.codex_root,
+        session_id="11111111-1111-4111-8111-111111111111",
+        source={"subAgent": {}},
+        last_event_time="2026-04-01T12:04:00Z",
+    )
+    seed_codex(
+        app_config.codex_root,
+        session_id="22222222-2222-4222-8222-222222222222",
+    )
+    _seed_continue_session(
+        app_config.continue_root,
+        session_id="33333333-3333-4333-8333-333333333333",
+        title="Old session",
+        mtime=datetime(2025, 10, 1, tzinfo=timezone.utc),
+    )
+
+    result = SessionActionService(app_config).prune(
+        timedelta(days=180),
+        short_subagent_age=timedelta(days=45),
+        dry_run=True,
+        now=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+
+    assert {item.session_id for item in result.eligible} == {
+        "11111111-1111-4111-8111-111111111111",
+        "33333333-3333-4333-8333-333333333333",
+    }
+
+
 def test_prune_deletes_only_sessions_older_than_cutoff(app_config):
     old_path = _seed_continue_session(
         app_config.continue_root,

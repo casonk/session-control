@@ -209,6 +209,21 @@ class SessionScanner:
         return ScanReport(tuple(records), tuple(errors))
 
 
+def _codex_is_subagent(payload: dict[str, Any]) -> bool:
+    role = str(payload.get("agent_role") or "").strip().lower()
+    if role and role not in {"default", "main"}:
+        return True
+    for key in ("source", "thread_source"):
+        source = payload.get(key)
+        if isinstance(source, str) and source.lower() in {"subagent", "sub_agent"}:
+            return True
+        if isinstance(source, dict) and any(
+            str(name).lower().replace("_", "") == "subagent" for name in source
+        ):
+            return True
+    return False
+
+
 def _codex_record(
     path: Path,
     index: dict[str, dict[str, Any]],
@@ -231,6 +246,7 @@ def _codex_record(
                     "originator": payload.get("originator") or "",
                     "agent_role": payload.get("agent_role") or "",
                     "agent_nickname": payload.get("agent_nickname") or "",
+                    "is_subagent": _codex_is_subagent(payload),
                     "model_provider": payload.get("model_provider") or "",
                     "model": payload.get("model") or metadata.get("model") or "",
                 }
@@ -283,6 +299,8 @@ def _codex_record(
     if resume_model:
         metadata["resume_model"] = resume_model
     metadata["permission_summary"] = codex_permission_summary(metadata)
+    if latest_timestamp:
+        metadata["last_event_at"] = latest_timestamp
     normalized_permission_preset = normalize_codex_permission_preset(codex_permission_preset)
     metadata["resume_permission_preset"] = normalized_permission_preset
     return SessionRecord(
@@ -323,8 +341,11 @@ def _claude_record(path: Path, max_preview_chars: int) -> SessionRecord | None:
     total_usage = dict.fromkeys(CLAUDE_TOKEN_FIELDS, 0)
     service_tier = ""
     speed = ""
+    is_subagent = "subagents" in path.parts
 
     for item in _iter_jsonl(path):
+        if item.get("isSidechain") is True or item.get("agentId"):
+            is_subagent = True
         timestamp = _normalize_datetime(str(item.get("timestamp") or ""))
         if timestamp:
             created_at = created_at or timestamp
@@ -367,7 +388,9 @@ def _claude_record(path: Path, max_preview_chars: int) -> SessionRecord | None:
     first_user = _best_user_text(user_texts)
     title = _title_from_text(first_user) or session_id
     workspace = workspace or _workspace_from_claude_project(path)
-    metadata: dict[str, Any] = {"permission_mode": permission_mode}
+    metadata: dict[str, Any] = {"permission_mode": permission_mode, "is_subagent": is_subagent}
+    if latest_timestamp:
+        metadata["last_event_at"] = latest_timestamp
     if model:
         metadata["model"] = model
     if last_usage:

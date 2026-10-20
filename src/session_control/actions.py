@@ -88,6 +88,7 @@ class PruneResult:
     deleted: tuple[DeleteResult, ...]
     skipped: tuple[PruneSkipped, ...]
     errors: tuple[PruneError, ...]
+    short_subagent_cutoff: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -383,12 +384,19 @@ class SessionActionService:
         *,
         providers: tuple[str, ...] | None = None,
         dry_run: bool = False,
+        short_subagents_only: bool = False,
+        short_subagent_age: timedelta | None = None,
         now: datetime | None = None,
     ) -> PruneResult:
         if older_than <= timedelta(0):
             raise SessionActionError("Prune age must be greater than zero.")
+        if short_subagent_age is not None and not timedelta(0) < short_subagent_age <= older_than:
+            raise SessionActionError(
+                "Short subagent age must be positive and no longer than prune age."
+            )
         reference_time = _to_utc(now or datetime.now(timezone.utc))
         cutoff = reference_time - older_than
+        short_cutoff = reference_time - short_subagent_age if short_subagent_age else None
         report = self.scanner.scan(providers=providers)
         eligible: list[SessionRecord] = []
         deleted: list[DeleteResult] = []
@@ -396,8 +404,11 @@ class SessionActionService:
         errors = [_prune_error_from_scan_error(error) for error in report.errors]
 
         for session in report.sessions:
+            if short_subagents_only and not session.is_short_subagent:
+                continue
             activity_at = _session_activity_at(session)
-            if activity_at is None or activity_at >= cutoff:
+            session_cutoff = short_cutoff if short_cutoff and session.is_short_subagent else cutoff
+            if activity_at is None or activity_at >= session_cutoff:
                 continue
             if session.active:
                 skipped.append(PruneSkipped(session=session, reason="active"))
@@ -421,6 +432,7 @@ class SessionActionService:
             deleted=tuple(deleted),
             skipped=tuple(skipped),
             errors=tuple(errors),
+            short_subagent_cutoff=short_cutoff,
         )
 
     def _delete_session(self, session: SessionRecord) -> DeleteResult:

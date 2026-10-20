@@ -47,6 +47,8 @@ Common variables:
 | `SESSION_CONTROL_ALLOWED_ORIGINS` | unset | Comma-separated extra origins for CSRF checks |
 | `SESSION_CONTROL_TRASH_DIR` | `~/.local/share/session-control/trash` | Delete destination |
 | `SESSION_CONTROL_PRUNE_OLDER_THAN` | `180d` | Default age for scheduled pruning |
+| `SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_PERCENT` | unset | Short subagent age as a share of scheduled age, such as `25%` |
+| `SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_MULTIPLIER` | unset | Short subagents pruned this many times sooner, such as `4x`; use instead of percentage |
 
 Set `SESSION_CONTROL_ALLOW_REMOTE=1` only when intentionally binding the Flask
 app outside loopback. The preferred phone path is still a loopback app behind
@@ -65,6 +67,20 @@ When a session records a workspace, the command is prefixed with `cd <workspace>
 Set `SESSION_CONTROL_CODEX_RESUME_MODEL` to force a known-good Codex model for
 web-launched resumes when the global Codex default is not supported by the
 machine's current auth mode.
+
+## Subagent sessions
+
+The session list marks recognized subagents and provides a **Session origin**
+filter. Detection uses Codex child-thread or agent-role metadata and Claude Code
+sidechain metadata or `subagents/` storage. The label also appears in session
+details and federated inventories. **Other sessions** includes sessions without
+subagent evidence; provider files do not always reveal whether an agent started
+a top-level CLI session.
+
+**Short subagents** flags recognized subagents whose first and last recorded
+events are at most five minutes apart. This is a cleanup review cue, not proof
+that the process exited or that the work has no value. Use the filter and
+**Select all visible** to review a batch before moving it to trash.
 
 ## Multiple machines
 
@@ -187,6 +203,30 @@ Run the cleanup:
 ```bash
 session-control prune --older-than 180d
 ```
+
+Preview and clean up only short subagents after one day of inactivity:
+
+```bash
+session-control prune --short-subagents-only --older-than 1d --dry-run
+session-control prune --short-subagents-only --older-than 1d
+```
+
+The scoped command uses the same trash and restore flow. Review the dry run
+before deleting; a brief subagent may still contain useful work.
+
+To prune short subagents sooner during the regular scheduled run, use either
+relative form. With a `180d` baseline, `25%` and `4x` both set a `45d` cutoff
+for short subagents while other sessions keep the `180d` cutoff:
+
+```bash
+session-control prune --older-than 180d --short-subagent-percent 25% --dry-run
+session-control prune --older-than 180d --short-subagent-multiplier 4x --dry-run
+```
+
+Set one matching `SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_*` variable in the local
+environment file to apply it to the installed daily timer. CLI flags override
+the environment setting for one run. Both forms also work with
+`--short-subagents-only`.
 
 Install the daily user-level clockwork timer:
 

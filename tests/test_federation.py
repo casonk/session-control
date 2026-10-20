@@ -38,6 +38,15 @@ def test_store_and_load_inventory_rejects_path_mismatch(app_config, tmp_path):
     assert (store / "air.json").stat().st_mode & 0o777 == 0o600
 
 
+def test_inventory_preserves_subagent_label(app_config):
+    seed_codex(app_config.codex_root, source={"subAgent": {"thread_spawn": {}}})
+
+    inventory = build_inventory(SessionScanner(app_config).scan(), node_id="air", node_label="Air")
+
+    assert inventory["sessions"][0]["is_subagent"] is True
+    assert inventory["sessions"][0]["is_short_subagent"] is True
+
+
 def test_federation_ingest_requires_node_token_and_renders_remote(app_config, tmp_path):
     seed_codex(app_config.codex_root)
     config = replace(
@@ -87,5 +96,7 @@ def test_federation_export_endpoint_excludes_private_fields(app_config):
         "message_count",
         "size_bytes",
         "active",
+        "is_subagent",
+        "is_short_subagent",
         "model",
     }

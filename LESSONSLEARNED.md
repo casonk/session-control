@@ -45,3 +45,9 @@ change how future sessions work in this repo.
   a fresh print-mode session with `--no-session-persistence`, and fail without
   falling back to a saved session. Poll account limits independently of local
   transcript changes because other sessions can consume the same quota.
+- Short-lived child sessions can accumulate while consuming tokens and disk.
+  Prefer existing tools or in-process delegation for one-shot checks when a
+  persistent child conversation is unnecessary. When a child session is useful,
+  retain its result in the parent and review short subagents through the scoped
+  dry-run prune before moving them to trash. Recorded event span is a review
+  signal, not proof of completion or dispensability.

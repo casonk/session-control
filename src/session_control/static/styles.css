@@ -192,7 +192,7 @@ h2 {
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1.8fr) auto;
+  grid-template-columns: minmax(140px, 0.7fr) minmax(160px, 0.8fr) minmax(220px, 1.8fr) auto;
   gap: 10px;
   align-items: end;
   padding: 14px 0;
@@ -337,6 +337,14 @@ select {
 
 .status.active {
   background: var(--danger);
+}
+
+.status.subagent {
+  background: #594289;
+}
+
+.status.short-subagent {
+  background: #936319;
 }
 
 .session h2 {

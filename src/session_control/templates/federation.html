@@ -36,6 +36,8 @@
                 <div class="session-main">
                   <div class="session-head">
                     <span class="provider {{ item.provider }}">{{ item.provider }}</span>
+                    {% if item.is_subagent %}<span class="status subagent">subagent</span>{% endif %}
+                    {% if item.is_short_subagent %}<span class="status short-subagent">short: review cleanup</span>{% endif %}
                     {% if item.active %}<span class="status active">active</span>{% endif %}
                   </div>
                   <h2>{{ item.title }}</h2>
