@@ -42,11 +42,13 @@ session-control/
    before changing scanner behavior.
 7. If the user clearly commands this current chat to end and be deleted (for
    example, "kill this session", "delete this session", or "destroy this
-   session"), run `session-control terminate-current` from this chat, report
-   the result briefly, and end the turn. Do not trigger on quoted examples or
+   session"), run `session-control terminate-current` from this chat, tell the
+   user that they must manually close or delete the hosted chat, and end the
+   turn. Do not trigger on quoted examples or
    requests to implement or discuss the command. The command requires the
    exact `CODEX_THREAD_ID` supplied by Codex. It moves local files to trash;
-   it cannot close a hosted chat thread or remove remote records.
+   it cannot close a hosted chat thread or remove remote records. Never say
+   that the chat itself was terminated.
 
 ## Agent Memory
 

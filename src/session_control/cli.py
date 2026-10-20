@@ -346,6 +346,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: {exc}")
             return 1
         print(f"Moved current Codex session to trash: {result.moved_count} file(s).")
+        print("Close or delete this chat manually in your chat client; it is still open.")
         return 0
 
     if args.command == "rotate":

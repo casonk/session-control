@@ -60,11 +60,13 @@ app outside loopback. The preferred phone path is still a loopback app behind
 ## End a session from chat
 
 When an agent is working under this repository's `AGENTS.md`, a clear command
-such as “kill this session” tells it to run `session-control terminate-current`
-and end its turn. The command requires Codex's `CODEX_THREAD_ID` environment
+such as “kill this session” tells it to run `session-control terminate-current`,
+tell the user to manually close or delete the hosted chat, and end its turn.
+The command requires Codex's `CODEX_THREAD_ID` environment
 variable and matches exactly one local Codex session. It removes that session
 from the provider store immediately by moving its files into restorable trash.
-It cannot close the host chat thread or erase remote records. If the provider
+It cannot close the host chat thread or erase remote records. The user must
+close or delete the chat in their chat client. If the provider
 continues writing after the move, new local artifacts may appear; run rotation
 or delete those again after the host thread stops.
 

@@ -94,4 +94,6 @@ def test_terminate_current_cli_uses_codex_thread_id(app_config, monkeypatch, cap
 
     assert main(["terminate-current"]) == 0
     assert not path.exists()
-    assert "Moved current Codex session to trash" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Moved current Codex session to trash" in output
+    assert "Close or delete this chat manually" in output
