@@ -234,7 +234,7 @@ class SessionActionService:
         ]
         if len(matches) != 1:
             raise SessionActionError("Current Codex session was not found uniquely.")
-        return self._delete_session(matches[0], reason="self-terminate")
+        return self._delete_session(matches[0], reason="self-terminate", kill_windows=False)
 
     def delete_many(self, public_ids: tuple[str, ...]) -> BulkDeleteResult:
         deduped = _dedupe(public_ids)
@@ -455,7 +455,9 @@ class SessionActionService:
             short_subagent_cutoff=short_cutoff,
         )
 
-    def _delete_session(self, session: SessionRecord, *, reason: str = "delete") -> DeleteResult:
+    def _delete_session(
+        self, session: SessionRecord, *, reason: str = "delete", kill_windows: bool = True
+    ) -> DeleteResult:
         if session.active:
             raise SessionActionError("Refusing to delete a session that appears to be active.")
         provider_root = self.config.provider_root(session.provider)
@@ -469,7 +471,9 @@ class SessionActionService:
             target_mappings.append((target, batch_dir / target.name))
         if not target_mappings:
             raise SessionActionError("Session files were not found. Refresh and try again.")
-        killed_window_count = _kill_tmux_windows_for_session(self.config.tmux_session, session)
+        killed_window_count = (
+            _kill_tmux_windows_for_session(self.config.tmux_session, session) if kill_windows else 0
+        )
         _write_restore_manifest(session, provider_root, batch_dir, target_mappings)
         moved = 0
         try:

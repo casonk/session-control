@@ -14,7 +14,9 @@ from session_control.web import create_app
 from tests.helpers import seed_codex
 
 
-def test_terminate_current_requires_exact_codex_id_and_records_private_coverage(app_config):
+def test_terminate_current_requires_exact_codex_id_and_records_private_coverage(
+    app_config, monkeypatch
+):
     path = seed_codex(app_config.codex_root)
     service = SessionActionService(app_config, SessionScanner(app_config))
     session = service.scanner.scan(providers=("codex",)).sessions[0]
@@ -24,6 +26,11 @@ def test_terminate_current_requires_exact_codex_id_and_records_private_coverage(
     with pytest.raises(SessionActionError, match="uniquely"):
         service.terminate_current("other-thread")
     assert path.exists()
+
+    def fail_if_killed(*args):
+        raise AssertionError("self termination must not kill its own tmux window")
+
+    monkeypatch.setattr("session_control.actions._kill_tmux_windows_for_session", fail_if_killed)
 
     result = service.terminate_current(session.session_id)
     assert not path.exists()
