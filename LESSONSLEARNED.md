@@ -55,3 +55,6 @@ change how future sessions work in this repo.
   the environment. Moving a local transcript to trash does not close a hosted
   chat or prevent its process from writing new artifacts. Keep the distinction
   explicit and rotate raw trash separately from metadata-only coverage records.
+- After a chat-directed local removal, tell the user plainly to close or delete
+  the hosted chat themselves. Do not describe a moved local file or an ended
+  agent turn as termination of the hosted conversation.
