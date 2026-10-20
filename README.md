@@ -46,6 +46,9 @@ Common variables:
 | `SESSION_CONTROL_PUBLIC_ORIGIN` | unset | External origin used by a trusted proxy |
 | `SESSION_CONTROL_ALLOWED_ORIGINS` | unset | Comma-separated extra origins for CSRF checks |
 | `SESSION_CONTROL_TRASH_DIR` | `~/.local/share/session-control/trash` | Delete destination |
+| `SESSION_CONTROL_DIGEST_DIR` | `~/.local/share/session-control/digests` | Private category/repo termination records |
+| `SESSION_CONTROL_TRASH_RETENTION_DAYS` | `7` | Days to keep restorable raw files |
+| `SESSION_CONTROL_DIGEST_RETENTION_DAYS` | `365` | Days to keep condensed records |
 | `SESSION_CONTROL_PRUNE_OLDER_THAN` | `180d` | Default age for scheduled pruning |
 | `SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_PERCENT` | unset | Short subagent age as a share of scheduled age, such as `25%` |
 | `SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_MULTIPLIER` | unset | Short subagents pruned this many times sooner, such as `4x`; use instead of percentage |
@@ -53,6 +56,26 @@ Common variables:
 Set `SESSION_CONTROL_ALLOW_REMOTE=1` only when intentionally binding the Flask
 app outside loopback. The preferred phone path is still a loopback app behind
 `wiring-harness`/Caddy or WireGuard.
+
+## End a session from chat
+
+When an agent is working under this repository's `AGENTS.md`, a clear command
+such as “kill this session” tells it to run `session-control terminate-current`
+and end its turn. The command requires Codex's `CODEX_THREAD_ID` environment
+variable and matches exactly one local Codex session. It removes that session
+from the provider store immediately by moving its files into restorable trash.
+It cannot close the host chat thread or erase remote records. If the provider
+continues writing after the move, new local artifacts may appear; run rotation
+or delete those again after the host thread stops.
+
+Every normal delete, prune, self termination, and merge records a private,
+metadata-only digest with category, repository basename, and counts. The
+**Coverage** page shows category and repository totals only. Titles, previews,
+transcripts, full paths, and session IDs are not kept in these records. The
+daily prune run also expires valid trash entries after 7 days and digest records
+after 365 days by default. Use `session-control rotate --dry-run` to preview
+expiration or `session-control rotate` to run it immediately. Restoring an entry
+within its trash retention window does not erase its termination record.
 
 ## Resume Commands
 

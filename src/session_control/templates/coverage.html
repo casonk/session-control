@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Session coverage · Session Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Session coverage</h1>
+          <p>{{ coverage.total }} recorded termination{{ '' if coverage.total == 1 else 's' }}</p>
+        </div>
+        <a class="button ghost" href="{{ url_for('index') }}">Sessions</a>
+      </header>
+      <section class="usage-strip" aria-label="Category coverage">
+        {% for category, count in coverage.categories.most_common() %}
+          <div><span>{{ category }}</span><strong>{{ count }}</strong></div>
+        {% else %}
+          <div><span>Categories</span><strong>No records yet</strong></div>
+        {% endfor %}
+      </section>
+      <section class="usage-strip" aria-label="Repository coverage">
+        {% for repo, count in coverage.repos.most_common() %}
+          <div><span>{{ repo }}</span><strong>{{ count }}</strong></div>
+        {% else %}
+          <div><span>Repositories</span><strong>No records yet</strong></div>
+        {% endfor %}
+      </section>
+    </main>
+  </body>
+</html>

@@ -200,6 +200,10 @@ def create_app(
             monitor_enabled=app_conn_monitor is not None,
         )
 
+    @app.get("/coverage")
+    def coverage():
+        return render_template("coverage.html", coverage=app_actions.digest_store.coverage())
+
     @app.get("/api/connections")
     def api_connections():
         if not app_conn_monitor:

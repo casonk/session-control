@@ -19,6 +19,9 @@ class AppConfig:
     copilot_root: Path
     trash_dir: Path
     secret_key: str
+    digest_dir: Path | None = None
+    trash_retention_days: int = 7
+    digest_retention_days: int = 365
     public_origin: str | None = None
     allowed_origins: tuple[str, ...] = ()
     max_preview_chars: int = 900
@@ -51,6 +54,12 @@ class AppConfig:
                 home / ".local" / "share" / "session-control" / "trash",
             ),
             secret_key=os.environ.get("SESSION_CONTROL_SECRET_KEY") or secrets.token_hex(32),
+            digest_dir=_path_env(
+                "SESSION_CONTROL_DIGEST_DIR",
+                home / ".local" / "share" / "session-control" / "digests",
+            ),
+            trash_retention_days=_int_env("SESSION_CONTROL_TRASH_RETENTION_DAYS", 7),
+            digest_retention_days=_int_env("SESSION_CONTROL_DIGEST_RETENTION_DAYS", 365),
             public_origin=os.environ.get("SESSION_CONTROL_PUBLIC_ORIGIN") or None,
             allowed_origins=_split_csv(os.environ.get("SESSION_CONTROL_ALLOWED_ORIGINS", "")),
             max_preview_chars=int(os.environ.get("SESSION_CONTROL_MAX_PREVIEW_CHARS", "900")),
