@@ -40,6 +40,7 @@ class AppConfig:
     federation_node_label: str = "Local machine"
     federation_store_dir: Path | None = None
     federation_tokens: dict[str, str] = field(default_factory=dict)
+    crew_chief_registry: Path | None = None
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -89,6 +90,9 @@ class AppConfig:
             ),
             federation_store_dir=_optional_path_env("SESSION_CONTROL_FEDERATION_STORE_DIR"),
             federation_tokens=_token_map(os.environ.get("SESSION_CONTROL_FEDERATION_TOKENS", "")),
+            crew_chief_registry=_path_env(
+                "SESSION_CONTROL_CREW_CHIEF_REGISTRY", _crew_chief_registry_default(home)
+            ),
         )
 
     def provider_root(self, provider: str) -> Path:
@@ -106,6 +110,12 @@ def _path_env(name: str, default: Path) -> Path:
     if not value:
         return default
     return Path(value).expanduser()
+
+
+def _crew_chief_registry_default(home: Path) -> Path:
+    state_home = os.environ.get("XDG_STATE_HOME")
+    base = Path(state_home) if state_home else home / ".local" / "state"
+    return base / "crew-chief" / "code-sessions.jsonl"
 
 
 def _optional_path_env(name: str) -> Path | None:
