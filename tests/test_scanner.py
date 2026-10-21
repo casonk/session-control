@@ -209,3 +209,48 @@ def test_claude_token_usage_metadata_is_captured(app_config):
     assert session.metadata["token_usage"]["total"]["output_tokens"] == 34
     assert session.metadata["token_usage"]["service_tier"] == "standard"
     assert session.metadata["token_usage"]["limits_available"] is False
+
+
+def test_crew_chief_local_session_is_labelled_and_resumed_locally(app_config, tmp_path):
+    from dataclasses import replace
+
+    from tests.helpers import write_jsonl
+
+    seed_claude(app_config.claude_root)
+    session_id = "c7df09f0-b9f2-4563-853e-f64fd095128f"
+    registry = tmp_path / "state" / "code-sessions.jsonl"
+    write_jsonl(
+        registry,
+        [
+            {"session_id": "other", "model": "qwen3:32b"},
+            {
+                "session_id": session_id,
+                "backend": "ollama",
+                "base_url": "http://localhost:11434",
+                "model": "qwen3:14b",
+            },
+        ],
+    )
+    config = replace(app_config, crew_chief_registry=registry)
+
+    session = SessionScanner(config).scan(providers=("claude",)).sessions[0]
+
+    assert session.metadata["local_backend"]["model"] == "qwen3:14b"
+    assert session.resume_command.endswith(
+        "crew-chief --url http://localhost:11434 code --model qwen3:14b "
+        f"--backend ollama -- --resume {session_id}"
+    )
+
+
+def test_claude_session_without_registry_entry_is_unchanged(app_config, tmp_path):
+    from dataclasses import replace
+
+    seed_claude(app_config.claude_root)
+    config = replace(app_config, crew_chief_registry=tmp_path / "missing.jsonl")
+
+    session = SessionScanner(config).scan(providers=("claude",)).sessions[0]
+
+    assert "local_backend" not in session.metadata
+    assert session.resume_command.endswith(
+        "&& claude --resume c7df09f0-b9f2-4563-853e-f64fd095128f"
+    )

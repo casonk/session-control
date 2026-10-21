@@ -343,6 +343,10 @@ select {
   background: #594289;
 }
 
+.status.local {
+  background: #2f6b6b;
+}
+
 .status.short-subagent {
   background: #936319;
 }

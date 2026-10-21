@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Claude Code sessions launched with `crew-chief code` are read from the
+  crew-chief session registry, labelled `local · <model>`, and resumed through
+  `crew-chief code` so they reopen on the same local backend.
+
 ## 0.2.0 - 2026-10-16
 
 - Added a `session-control prune` command for delete-to-trash cleanup of

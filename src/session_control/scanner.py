@@ -9,6 +9,7 @@ import shlex
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -118,6 +119,7 @@ class SessionScanner:
             return ScanReport(())
         records: list[SessionRecord] = []
         errors: list[ScanError] = []
+        local_sessions = _read_crew_chief_registry(self.config.crew_chief_registry)
         for path in root.rglob("*.jsonl"):
             issue = _probe_jsonl(
                 path,
@@ -130,6 +132,9 @@ class SessionScanner:
                 continue
             record = _claude_record(path, self.config.max_preview_chars)
             if record:
+                local = local_sessions.get(record.session_id)
+                if local:
+                    record = _with_local_backend(record, local)
                 records.append(record)
         return ScanReport(tuple(records), tuple(errors))
 
@@ -533,6 +538,37 @@ def _copilot_record(session_dir: Path, max_preview_chars: int) -> SessionRecord 
         resume_command=_command(workspace, ["copilot", f"--resume={session_id}"]),
         active=active,
         metadata={"summary_count": workspace_data.get("summary_count") or ""},
+    )
+
+
+def _read_crew_chief_registry(path: Path | None) -> dict[str, dict[str, str]]:
+    """Map session IDs launched by `crew-chief code` to their backend details."""
+    if path is None or not path.is_file():
+        return {}
+    entries: dict[str, dict[str, str]] = {}
+    for item in _iter_jsonl(path):
+        session_id = str(item.get("session_id") or "")
+        model = str(item.get("model") or "")
+        if session_id and model:
+            entries[session_id] = {
+                "backend": str(item.get("backend") or "ollama"),
+                "base_url": str(item.get("base_url") or ""),
+                "model": model,
+            }
+    return entries
+
+
+def _with_local_backend(record: SessionRecord, local: dict[str, str]) -> SessionRecord:
+    """Label a Claude session that ran on a local model and resume it there."""
+    args = ["crew-chief"]
+    if local["base_url"]:
+        args.extend(["--url", local["base_url"]])
+    args.extend(["code", "--model", local["model"], "--backend", local["backend"]])
+    args.extend(["--", "--resume", record.session_id])
+    return replace(
+        record,
+        resume_command=_command(record.workspace, args),
+        metadata={**record.metadata, "local_backend": local},
     )
 
 

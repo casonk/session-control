@@ -51,6 +51,7 @@ Common variables:
 | `SESSION_CONTROL_DIGEST_RETENTION_DAYS` | `365` | Days to keep condensed records |
 | `SESSION_CONTROL_PRUNE_OLDER_THAN` | `180d` | Default age for scheduled pruning |
 | `SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_PERCENT` | unset | Short subagent age as a share of scheduled age, such as `25%` |
+| `SESSION_CONTROL_CREW_CHIEF_REGISTRY` | `~/.local/state/crew-chief/code-sessions.jsonl` | Sessions launched by `crew-chief code`, labelled `local · <model>` |
 | `SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_MULTIPLIER` | unset | Short subagents pruned this many times sooner, such as `4x`; use instead of percentage |
 
 Set `SESSION_CONTROL_ALLOW_REMOTE=1` only when intentionally binding the Flask
@@ -84,7 +85,10 @@ within its trash retention window does not erase its termination record.
 The scanner emits provider-specific resume commands:
 
 - Codex: `codex resume <session-id>` or `codex resume --model <model> <session-id>` when the session records a model
-- Claude Code: `claude --resume <session-id>`
+- Claude Code: `claude --resume <session-id>`, or for sessions started with
+  [`crew-chief code`](https://github.com/casonk/crew-chief) on a local model,
+  `crew-chief --url <server> code --model <model> --backend <backend> -- --resume <session-id>`
+  so the session reopens on the same local backend
 - Continue: `cn --fork <session-id>`
 - GitHub Copilot CLI: `copilot --resume=<session-id>`
 

@@ -11,7 +11,7 @@
     <main class="shell detail-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">{{ session.provider }}{% if session.is_subagent %} · subagent{% endif %} · {{ session.updated_at|datetime }}</p>
+          <p class="eyebrow">{{ session.provider }}{% if session.metadata.local_backend %} · local · {{ session.metadata.local_backend.model }}{% endif %}{% if session.is_subagent %} · subagent{% endif %} · {{ session.updated_at|datetime }}</p>
           <h1>{{ session.title }}</h1>
         </div>
         <a class="button ghost" href="{{ url_for('index') }}">Back</a>
