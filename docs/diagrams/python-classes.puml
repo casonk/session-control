@@ -1,4 +1,4 @@
-@startuml classes_session-control
+@startuml classes_checkout
 set namespaceSeparator none
 class "AppConfig" as session_control.config.AppConfig {
   allowed_origins : tuple[str, ...]
@@ -12,6 +12,9 @@ class "AppConfig" as session_control.config.AppConfig {
   codex_root : Path
   continue_root : Path
   copilot_root : Path
+  crew_chief_registry : Path | None
+  digest_dir : Path | None
+  digest_retention_days : int
   federation_node_id : str
   federation_node_label : str
   federation_store_dir : Path | None
@@ -24,6 +27,7 @@ class "AppConfig" as session_control.config.AppConfig {
   secret_key : str
   tmux_session : str
   trash_dir : Path
+  trash_retention_days : int
   webterm_url : str | None
   from_env() -> AppConfig
   provider_root(provider: str) -> Path
@@ -71,6 +75,13 @@ class "DeleteResult" as session_control.actions.DeleteResult {
   moved_to : Path
   session
 }
+class "DigestStore" as session_control.digests.DigestStore {
+  root : Path
+  coverage() -> dict
+  record(session: SessionRecord) -> Path
+  records() -> tuple[dict, ...]
+  rotate(older_than: timedelta) -> int
+}
 class "MergeResult" as session_control.actions.MergeResult {
   absorbed : tuple[SessionRecord, ...]
   kept
@@ -98,6 +109,7 @@ class "PruneResult" as session_control.actions.PruneResult {
   eligible : tuple[SessionRecord, ...]
   errors : tuple[PruneError, ...]
   scanned_count : int
+  short_subagent_cutoff : datetime | None
   skipped : tuple[PruneSkipped, ...]
 }
 class "PruneSkipped" as session_control.actions.PruneSkipped {
@@ -129,6 +141,7 @@ class "<color:red>SessionActionError</color>" as session_control.actions.Session
 }
 class "SessionActionService" as session_control.actions.SessionActionService {
   config
+  digest_store : DigestStore
   scanner
   deduplicate(min_age: timedelta, max_age: timedelta) -> DeduplicateResult
   delete(public_id: str) -> DeleteResult
@@ -138,11 +151,15 @@ class "SessionActionService" as session_control.actions.SessionActionService {
   open_many_in_webterm(public_ids: tuple[str, ...]) -> BulkOpenResult
   prune(older_than: timedelta) -> PruneResult
   restore(trash_id: str) -> RestoreResult
+  rotate() -> tuple[int, int]
+  terminate_current(session_id: str) -> DeleteResult
 }
 class "SessionRecord" as session_control.models.SessionRecord {
   active : bool
   created_at : str
   delete_targets : tuple[Path, ...]
+  is_short_subagent : bool
+  is_subagent : bool
   message_count : int
   metadata : dict[str, Any]
   preview : str
