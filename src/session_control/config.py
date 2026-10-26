@@ -36,6 +36,9 @@ class AppConfig:
     scan_cache_ttl_seconds: float = 5.0
     monitor_targets: tuple[str, ...] = ()
     monitor_interval_seconds: float = 5.0
+    monitor_webterm_client_cert: Path | None = None
+    monitor_webterm_client_key: Path | None = None
+    monitor_webterm_ca_cert: Path | None = None
     federation_node_id: str = "local"
     federation_node_label: str = "Local machine"
     federation_store_dir: Path | None = None
@@ -84,6 +87,13 @@ class AppConfig:
             scan_cache_ttl_seconds=_float_env("SESSION_CONTROL_SCAN_CACHE_TTL", 5.0),
             monitor_targets=_split_csv(os.environ.get("SESSION_CONTROL_MONITOR_TARGETS", "")),
             monitor_interval_seconds=_float_env("SESSION_CONTROL_MONITOR_INTERVAL", 5.0),
+            monitor_webterm_client_cert=_optional_path_env(
+                "SESSION_CONTROL_MONITOR_WEBTERM_CLIENT_CERT"
+            ),
+            monitor_webterm_client_key=_optional_path_env(
+                "SESSION_CONTROL_MONITOR_WEBTERM_CLIENT_KEY"
+            ),
+            monitor_webterm_ca_cert=_optional_path_env("SESSION_CONTROL_MONITOR_WEBTERM_CA_CERT"),
             federation_node_id=os.environ.get("SESSION_CONTROL_FEDERATION_NODE_ID", "local"),
             federation_node_label=os.environ.get(
                 "SESSION_CONTROL_FEDERATION_NODE_LABEL", "Local machine"

@@ -53,6 +53,9 @@ Common variables:
 | `SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_PERCENT` | unset | Short subagent age as a share of scheduled age, such as `25%` |
 | `SESSION_CONTROL_CREW_CHIEF_REGISTRY` | `~/.local/state/crew-chief/code-sessions.jsonl` | Sessions launched by `crew-chief code`, labelled `local · <model>` |
 | `SESSION_CONTROL_PRUNE_SHORT_SUBAGENT_MULTIPLIER` | unset | Short subagents pruned this many times sooner, such as `4x`; use instead of percentage |
+| `SESSION_CONTROL_MONITOR_WEBTERM_CLIENT_CERT` | unset | Dedicated client certificate for the WebTerm HTTPS probe |
+| `SESSION_CONTROL_MONITOR_WEBTERM_CLIENT_KEY` | unset | Matching private key for the WebTerm probe certificate |
+| `SESSION_CONTROL_MONITOR_WEBTERM_CA_CERT` | unset | Additional CA certificate used to verify WebTerm's server certificate |
 
 Set `SESSION_CONTROL_ALLOW_REMOTE=1` only when intentionally binding the Flask
 app outside loopback. The preferred phone path is still a loopback app behind
@@ -163,6 +166,20 @@ scanner support before relying on a new format.
 The Open action creates a tmux window in the configured webterm session, selects
 that window for new webterm tabs, and keeps the window open when the resume
 command exits with an error so the failure message is visible.
+
+The connection monitor probes the configured WebTerm URL with an HTTP request.
+If the URL is protected by mTLS, set `SESSION_CONTROL_MONITOR_WEBTERM_CLIENT_CERT` and
+`SESSION_CONTROL_MONITOR_WEBTERM_CLIENT_KEY` to a dedicated monitor identity
+accepted by the proxy. If WebTerm uses a private server CA, set
+`SESSION_CONTROL_MONITOR_WEBTERM_CA_CERT` as well. The CA is added to the
+system trust store for this probe; normal server certificate verification
+stays enabled. The monitor allows this explicitly configured legacy CA without
+a `keyUsage` extension; it still verifies the certificate chain and hostname.
+The client identity is used only for the configured WebTerm
+monitor target, not other HTTP targets; redirects with the certificate are
+followed only when they stay on the same HTTPS origin. Keep the private key
+outside git and readable only by the session-control service user. The proxy
+must authorize this identity for the probed URL.
 
 ## Assistant Usage
 
