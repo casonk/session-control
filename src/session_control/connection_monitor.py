@@ -5,10 +5,12 @@ from __future__ import annotations
 import platform
 import re
 import socket
+import ssl
 import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
@@ -145,9 +147,18 @@ class TargetState:
 
 
 class ConnectionMonitor:
-    def __init__(self, targets: list[TargetConfig], interval_seconds: float = 5.0):
+    def __init__(
+        self,
+        targets: list[TargetConfig],
+        interval_seconds: float = 5.0,
+        *,
+        webterm_url: str | None = None,
+        webterm_ssl_context: ssl.SSLContext | None = None,
+    ):
         self._states: dict[str, TargetState] = {t.name: TargetState(t) for t in targets}
         self._interval = interval_seconds
+        self._webterm_url = webterm_url
+        self._webterm_ssl_context = webterm_ssl_context
         self._lock = threading.Lock()
         self._events: deque[ConnEvent] = deque(maxlen=MAX_EVENTS)
         self._stop = threading.Event()
@@ -186,7 +197,13 @@ class ConnectionMonitor:
 
     def _probe_all(self) -> None:
         for state in self._states.values():
-            result = _probe(state.config)
+            config = state.config
+            ssl_context = (
+                self._webterm_ssl_context
+                if config.kind == "http" and config.host == self._webterm_url
+                else None
+            )
+            result = _probe(config, ssl_context=ssl_context)
             with self._lock:
                 event = state.record(result)
                 if event:
@@ -196,7 +213,7 @@ class ConnectionMonitor:
 # ── probe implementations ─────────────────────────────────────────────────────
 
 
-def _probe(config: TargetConfig) -> ProbeResult:
+def _probe(config: TargetConfig, *, ssl_context: ssl.SSLContext | None = None) -> ProbeResult:
     wall_ts = datetime.now(timezone.utc)
     t0 = time.monotonic()
     try:
@@ -205,7 +222,7 @@ def _probe(config: TargetConfig) -> ProbeResult:
         elif config.kind == "tcp":
             ok, ms = _probe_tcp(config.host, config.port or 22, config.timeout_seconds)
         elif config.kind == "http":
-            ok, ms = _probe_http(config.host, config.timeout_seconds)
+            ok, ms = _probe_http(config.host, config.timeout_seconds, ssl_context=ssl_context)
         else:
             ok, ms = False, None
     except Exception:
@@ -233,15 +250,49 @@ def _probe_tcp(host: str, port: int, timeout: float) -> tuple[bool, float | None
     return True, (time.monotonic() - t0) * 1000.0
 
 
-def _probe_http(url: str, timeout: float) -> tuple[bool, float | None]:
+def _probe_http(
+    url: str, timeout: float, *, ssl_context: ssl.SSLContext | None = None
+) -> tuple[bool, float | None]:
     t0 = time.monotonic()
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        if ssl_context is None:
+            response = urllib.request.urlopen(url, timeout=timeout)
+        else:
+            opener = urllib.request.build_opener(
+                _SameOriginRedirectHandler(_url_origin(url)),
+                urllib.request.HTTPSHandler(context=ssl_context),
+            )
+            response = opener.open(url, timeout=timeout)
+        with response as resp:
             resp.read(16)
     except urllib.error.HTTPError:
         # Server responded with an error code — it's reachable.
         pass
     return True, (time.monotonic() - t0) * 1000.0
+
+
+class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Allow WebTerm redirects only when they stay on the original HTTPS origin."""
+
+    def __init__(self, origin: tuple[str, str, int] | None):
+        super().__init__()
+        self._origin = origin
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if _url_origin(newurl) != self._origin:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _url_origin(url: str) -> tuple[str, str, int] | None:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return None
+    try:
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    except ValueError:
+        return None
+    return parsed.scheme.lower(), parsed.hostname.lower(), port
 
 
 # ── config helpers ────────────────────────────────────────────────────────────

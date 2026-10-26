@@ -6,6 +6,7 @@ import contextlib
 import hmac
 import ipaddress
 import secrets
+import ssl
 from collections import Counter
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -395,7 +396,42 @@ def _connection_monitor(config: AppConfig) -> ConnectionMonitor | None:
     targets = targets_from_config(config)
     if not targets:
         return None
-    return ConnectionMonitor(targets, interval_seconds=config.monitor_interval_seconds)
+    ssl_context = _webterm_monitor_ssl_context(config)
+    return ConnectionMonitor(
+        targets,
+        interval_seconds=config.monitor_interval_seconds,
+        webterm_url=config.webterm_url,
+        webterm_ssl_context=ssl_context,
+    )
+
+
+def _webterm_monitor_ssl_context(config: AppConfig) -> ssl.SSLContext | None:
+    cert_path = config.monitor_webterm_client_cert
+    key_path = config.monitor_webterm_client_key
+    ca_path = config.monitor_webterm_ca_cert
+
+    if (cert_path is None) != (key_path is None):
+        raise ValueError(
+            "SESSION_CONTROL_MONITOR_WEBTERM_CLIENT_CERT and "
+            "SESSION_CONTROL_MONITOR_WEBTERM_CLIENT_KEY must be set together."
+        )
+    if cert_path is None and ca_path is None:
+        return None
+    if not config.webterm_url or urlparse(config.webterm_url).scheme.lower() != "https":
+        raise ValueError(
+            "SESSION_CONTROL_MONITOR_WEBTERM_* TLS settings require an HTTPS "
+            "SESSION_CONTROL_WEBTERM_URL."
+        )
+
+    context = ssl.create_default_context()
+    if ca_path is not None:
+        context.load_verify_locations(cafile=str(ca_path))
+        # The wiring-harness CA is an existing CA:TRUE root without keyUsage;
+        # Python's strict X.509 mode rejects it. Keep chain and hostname checks.
+        context.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+    if cert_path is not None and key_path is not None:
+        context.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    return context
 
 
 def _claude_status_poller(config: AppConfig) -> ClaudeStatusPoller | None:

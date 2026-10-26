@@ -8,7 +8,7 @@ skinparam linetype ortho
 rectangle ".github/workflows/ci.yml\n2 detected tools" as source_github_workflows_ci_yml #E0F2FE
 rectangle ".github/workflows/python-publish.yml\n3 detected tools" as source_github_workflows_python_publish_yml #E0F2FE
 rectangle ".github/workflows/secret-scan.yml\n1 detected tool" as source_github_workflows_secret_scan_yml #E0F2FE
-rectangle "scripts/install_prune_timer.sh\n2 detected tools" as source_scripts_install_prune_timer_sh #E0F2FE
+rectangle "scripts/install_prune_timer.sh\n3 detected tools" as source_scripts_install_prune_timer_sh #E0F2FE
 rectangle "scripts/install_web_service.sh\n3 detected tools" as source_scripts_install_web_service_sh #E0F2FE
 cloud "actions/download-artifact" as tool_actions_download_artifact #FEF3C7
 cloud "casonk/.github/.github/workflows/install-check.yml" as tool_casonk_github_github_workflows_install_check_yml #FEF3C7
@@ -20,6 +20,7 @@ cloud "clockwork" as tool_clockwork #FEF3C7
 cloud "mkdir" as tool_mkdir #FEF3C7
 cloud "pypa/gh-action-pypi-publish" as tool_pypa_gh_action_pypi_publish #FEF3C7
 cloud "systemctl" as tool_systemctl #FEF3C7
+cloud "value" as tool_value #FEF3C7
 source_github_workflows_ci_yml --> tool_casonk_github_github_workflows_install_check_yml
 source_github_workflows_ci_yml --> tool_casonk_github_github_workflows_python_ci_yml
 source_github_workflows_python_publish_yml --> tool_actions_download_artifact
@@ -28,11 +29,12 @@ source_github_workflows_python_publish_yml --> tool_pypa_gh_action_pypi_publish
 source_github_workflows_secret_scan_yml --> tool_casonk_github_github_workflows_secret_scan_yml
 source_scripts_install_prune_timer_sh --> tool_clockwork
 source_scripts_install_prune_timer_sh --> tool_systemctl
+source_scripts_install_prune_timer_sh --> tool_value
 source_scripts_install_web_service_sh --> tool_cat
 source_scripts_install_web_service_sh --> tool_mkdir
 source_scripts_install_web_service_sh --> tool_systemctl
 note as toolingGraphSummary
 Scanned 5 tooling entrypoints.
-Detected 10 third-party tools.
+Detected 11 third-party tools.
 end note
 @enduml

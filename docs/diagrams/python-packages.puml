@@ -3,7 +3,7 @@ set namespaceSeparator none
 top to bottom direction
 skinparam componentStyle rectangle
 rectangle "connection_monitor_tui\n1 python file" as connection_monitor_tui
-rectangle "session_control\n0 child pkg, 12 modules\n13 python files\nexamples: __main__, actions, claude_status" as session_control
+rectangle "session_control\n0 child pkg, 13 modules\n14 python files\nexamples: __main__, actions, claude_status" as session_control
 rectangle "session_control.__main__\n1 python file" as session_control.__main__
 rectangle "session_control.actions\n1 python file" as session_control.actions
 rectangle "session_control.claude_status\n1 python file" as session_control.claude_status
@@ -12,6 +12,7 @@ rectangle "session_control.codex_permissions\n1 python file" as session_control.
 rectangle "session_control.config\n1 python file" as session_control.config
 rectangle "session_control.connection_monitor\n1 python file" as session_control.connection_monitor
 rectangle "session_control.dedup\n1 python file" as session_control.dedup
+rectangle "session_control.digests\n1 python file" as session_control.digests
 rectangle "session_control.federation\n1 python file" as session_control.federation
 rectangle "session_control.models\n1 python file" as session_control.models
 rectangle "session_control.scanner\n1 python file" as session_control.scanner
@@ -23,6 +24,7 @@ session_control.__main__ --> session_control.cli
 session_control.actions --> session_control.codex_permissions
 session_control.actions --> session_control.config
 session_control.actions --> session_control.dedup
+session_control.actions --> session_control.digests
 session_control.actions --> session_control.models
 session_control.actions --> session_control.scanner
 session_control.cli --> session_control.actions
@@ -33,6 +35,7 @@ session_control.cli --> session_control.scanner
 session_control.cli --> session_control.web
 session_control.config --> session_control.codex_permissions
 session_control.dedup --> session_control.models
+session_control.digests --> session_control.models
 session_control.federation --> session_control.models
 session_control.scanner --> session_control.codex_permissions
 session_control.scanner --> session_control.config
