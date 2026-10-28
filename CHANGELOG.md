@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Ignore hidden directories in Copilot's session state, so its operation-lock
+  directory no longer fails the scan and the daily prune job.
 - Add a **Machine load** page (`/ecu`, JSON at `/api/ecu`) showing the held lease
   (command, priority, mode, GPU size), GPU memory and processes, and each timer
   job's run/defer verdict from `ecu status --json`. It explains itself when the

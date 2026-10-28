@@ -254,3 +254,13 @@ def test_claude_session_without_registry_entry_is_unchanged(app_config, tmp_path
     assert session.resume_command.endswith(
         "&& claude --resume c7df09f0-b9f2-4563-853e-f64fd095128f"
     )
+
+
+def test_scanner_ignores_hidden_copilot_state_directories(app_config):
+    seed_copilot(app_config.copilot_root)
+    (app_config.copilot_root / "session-state" / ".session-operation-locks").mkdir()
+
+    report = SessionScanner(app_config).scan()
+
+    assert not report.errors
+    assert any(record.provider == "copilot" for record in report.sessions)
