@@ -32,6 +32,7 @@ from session_control.codex_permissions import (
 )
 from session_control.config import AppConfig
 from session_control.connection_monitor import ConnectionMonitor, targets_from_config
+from session_control.ecu_status import read_status as read_ecu_status
 from session_control.federation import build_inventory, load_inventories, store_inventory
 from session_control.models import SessionRecord
 from session_control.scanner import PROVIDERS, SessionScanner
@@ -50,6 +51,7 @@ def create_app(
     actions: SessionActionService | None = None,
     claude_status_poller: ClaudeStatusPoller | None = None,
     connection_monitor: ConnectionMonitor | None = None,
+    ecu_reader=None,
 ) -> Flask:
     app_config = config or AppConfig.from_env()
     app_scanner = scanner or SessionScanner(app_config)
@@ -60,6 +62,7 @@ def create_app(
     app_conn_monitor = connection_monitor or _connection_monitor(app_config)
     if app_conn_monitor:
         app_conn_monitor.start()
+    app_ecu_reader = ecu_reader or read_ecu_status
     app = Flask(__name__)
     app.secret_key = app_config.secret_key
 
@@ -200,6 +203,18 @@ def create_app(
             initial_data=data,
             monitor_enabled=app_conn_monitor is not None,
         )
+
+    @app.get("/ecu")
+    def ecu():
+        document, error = app_ecu_reader()
+        return render_template("ecu.html", document=document, error=error)
+
+    @app.get("/api/ecu")
+    def api_ecu():
+        document, error = app_ecu_reader()
+        if document is None:
+            return jsonify({"error": error}), HTTPStatus.SERVICE_UNAVAILABLE
+        return jsonify(document)
 
     @app.get("/coverage")
     def coverage():

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Machine load — Session Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Machine load</h1>
+          <p>Lease and load state from <code>ecu status</code></p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <a class="button ghost" href="{{ url_for('index') }}">Sessions</a>
+          <a class="button ghost" href="{{ url_for('ecu') }}">Refresh</a>
+        </div>
+      </header>
+
+      {% if document is none %}
+        <section class="conn-table-wrap" role="alert">
+          <p>Lease state is unavailable: {{ error }}</p>
+        </section>
+      {% else %}
+        <section class="conn-table-wrap" aria-label="Lease">
+          <h2>Lease</h2>
+          {% if document.lease %}
+            <p>
+              <strong>{{ document.lease.command or "—" }}</strong>
+              · priority {{ document.lease.priority or "—" }}
+              · {{ document.lease.mode or "—" }}
+              {% if document.lease.gpu_mib %}· {{ document.lease.gpu_mib }} MiB{% endif %}
+              · pid {{ document.lease.pid or "—" }}
+            </p>
+          {% else %}
+            <p>No lease is held. Heavy jobs may start.</p>
+          {% endif %}
+        </section>
+
+        <section class="conn-table-wrap" aria-label="GPU">
+          <h2>GPU</h2>
+          {% if document.gpu %}
+            <p>{{ document.gpu.used_mib }} / {{ document.gpu.total_mib }} MiB used ({{ document.gpu.free_mib }} free)</p>
+            {% if document.gpu.processes %}
+              <table class="conn-table">
+                <thead><tr><th>PID</th><th>Process</th><th>MiB</th><th>Owner</th></tr></thead>
+                <tbody>
+                  {% for p in document.gpu.processes %}
+                    <tr><td>{{ p.pid }}</td><td>{{ p.name }}</td><td>{{ p.used_mib }}</td><td>{{ p.owner or "—" }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+          {% else %}
+            <p>No GPU reading.</p>
+          {% endif %}
+        </section>
+
+        <section class="conn-table-wrap" aria-label="Timer jobs">
+          <h2>Timer jobs</h2>
+          <table class="conn-table">
+            <thead><tr><th>Unit</th><th>Class</th><th>Verdict</th><th>Reason</th></tr></thead>
+            <tbody>
+              {% for job in document.jobs %}
+                <tr>
+                  <td>{{ job.unit }}</td>
+                  <td>{{ job["class"] }}</td>
+                  <td>{{ job.verdict }}{% if job.running %} (running){% endif %}</td>
+                  <td>{{ job.reason }}{% if job.deferrals %} · deferred {{ job.deferrals }}×{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

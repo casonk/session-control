@@ -284,3 +284,44 @@ def test_bulk_delete_route_removes_selected_sessions(app_config):
 
     assert response.status_code == 302
     assert SessionScanner(app_config).scan().sessions == ()
+
+
+ECU_DOCUMENT = {
+    "lease": {
+        "command": "serve model",
+        "priority": "interactive",
+        "mode": "shared",
+        "gpu_mib": 9000,
+        "pid": 7,
+    },
+    "gpu": {"total_mib": 24576, "used_mib": 500, "free_mib": 24076, "processes": []},
+    "jobs": [
+        {
+            "unit": "nightly.service",
+            "class": "heavy",
+            "verdict": "defer",
+            "running": False,
+            "deferrals": 1,
+            "reason": "an ecu lease is active",
+        }
+    ],
+}
+
+
+def test_ecu_page_and_api_show_the_lease(app_config):
+    client = create_app(app_config, ecu_reader=lambda: (ECU_DOCUMENT, "")).test_client()
+    body = client.get("/ecu").get_data(as_text=True)
+    assert "serve model" in body
+    assert "priority interactive" in body
+    assert "an ecu lease is active" in body
+    assert client.get("/api/ecu").get_json() == ECU_DOCUMENT
+
+
+def test_ecu_page_explains_when_unavailable(app_config):
+    client = create_app(app_config, ecu_reader=lambda: (None, "no ecu here")).test_client()
+    response = client.get("/ecu")
+    assert response.status_code == 200
+    assert "no ecu here" in response.get_data(as_text=True)
+    unavailable = client.get("/api/ecu")
+    assert unavailable.status_code == 503
+    assert unavailable.get_json() == {"error": "no ecu here"}
