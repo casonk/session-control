@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a **Machine load** page (`/ecu`, JSON at `/api/ecu`) showing the held lease
+  (command, priority, mode, GPU size), GPU memory and processes, and each timer
+  job's run/defer verdict from `ecu status --json`. It explains itself when the
+  `ecu` command is missing (`SESSION_CONTROL_ECU_BIN` overrides the lookup).
 - Claude Code sessions launched with `crew-chief code` are read from the
   crew-chief session registry, labelled `local · <model>`, and resumed through
   `crew-chief code` so they reopen on the same local backend.
