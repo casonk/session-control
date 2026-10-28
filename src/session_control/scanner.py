@@ -184,7 +184,8 @@ class SessionScanner:
         records: list[SessionRecord] = []
         errors: list[ScanError] = []
         for session_dir in root.iterdir():
-            if not session_dir.is_dir():
+            # Copilot keeps its own bookkeeping (.session-operation-locks) beside sessions.
+            if not session_dir.is_dir() or session_dir.name.startswith("."):
                 continue
             workspace_file = session_dir / "workspace.yaml"
             workspace_data = _read_simple_yaml(workspace_file)
