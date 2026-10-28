@@ -11,7 +11,9 @@
 ## Documentation and Specifications
 
 - https://flask.palletsprojects.com/ - Flask documentation for the local web UI.
+- https://rich.readthedocs.io/ - Rich terminal UI used by the optional connection monitor.
 - https://docs.anthropic.com/en/docs/claude-code - Claude Code documentation.
+- https://learn.chatgpt.com/docs/codex/cli - Codex CLI documentation.
 - https://docs.github.com/en/copilot - GitHub Copilot documentation.
 - https://docs.continue.dev/ - Continue documentation.
 
