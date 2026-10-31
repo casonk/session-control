@@ -1,3 +1,6 @@
+# Vendored from traction-control (scripts/portfolio_sites.py vendor); pinned by MANIFEST.sha256, never reformatted.
+exclude: '(^|/)portfolio/(__init__\.py|site\.py|theme\.css|theme\.js|chrome\.js|MANIFEST\.sha256)$'
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
