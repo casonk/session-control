@@ -14,3 +14,6 @@ config/*.local
 config/*.local.env
 config/session-control.env.local
 trash/
+
+# Link to this checkout's entry in the portfolio site store (owner-only, local)
+/.portfolio

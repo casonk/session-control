@@ -1,0 +1,221 @@
+/* Generated from themes/themes.toml by scripts/render_portfolio_theme.py; do not edit. */
+:root {
+  color-scheme: dark;
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #22263a;
+  --border: #2e3250;
+  --text: #e2e4f0;
+  --muted: #8890b0;
+  --accent: #5b7fff;
+  --accent-dim: #161c34;
+  --accent-ink: #0f1117;
+  --green: #3ecf6e;
+  --green-dim: #1a4d30;
+  --red: #e05252;
+  --red-dim: #251418;
+  --yellow: #e0b832;
+  --yellow-dim: #4a3d10;
+  --purple: #a06fff;
+  --purple-dim: #29194c;
+  --stripe: transparent;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg: #f4f5fa;
+    --surface: #ffffff;
+    --surface2: #eceef6;
+    --border: #d3d7e6;
+    --text: #1c2033;
+    --muted: #5b6486;
+    --accent: #3b5bdb;
+    --accent-dim: #e0e8ff;
+    --accent-ink: #ffffff;
+    --green: #17743d;
+    --green-dim: #d3f2df;
+    --red: #c92a2a;
+    --red-dim: #ffe6e6;
+    --yellow: #8a5a00;
+    --yellow-dim: #fff3bf;
+    --purple: #7048e8;
+    --purple-dim: #eee8ff;
+    --stripe: transparent;
+  }
+}
+/* Midnight: The original Clockwork dark palette */
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #22263a;
+  --border: #2e3250;
+  --text: #e2e4f0;
+  --muted: #8890b0;
+  --accent: #5b7fff;
+  --accent-dim: #161c34;
+  --accent-ink: #0f1117;
+  --green: #3ecf6e;
+  --green-dim: #1a4d30;
+  --red: #e05252;
+  --red-dim: #251418;
+  --yellow: #e0b832;
+  --yellow-dim: #4a3d10;
+  --purple: #a06fff;
+  --purple-dim: #29194c;
+  --stripe: transparent;
+}
+/* Daylight: A light theme for bright rooms and print */
+:root[data-theme="daylight"] {
+  color-scheme: light;
+  --bg: #f4f5fa;
+  --surface: #ffffff;
+  --surface2: #eceef6;
+  --border: #d3d7e6;
+  --text: #1c2033;
+  --muted: #5b6486;
+  --accent: #3b5bdb;
+  --accent-dim: #e0e8ff;
+  --accent-ink: #ffffff;
+  --green: #17743d;
+  --green-dim: #d3f2df;
+  --red: #c92a2a;
+  --red-dim: #ffe6e6;
+  --yellow: #8a5a00;
+  --yellow-dim: #fff3bf;
+  --purple: #7048e8;
+  --purple-dim: #eee8ff;
+  --stripe: transparent;
+}
+/* Ember: A warm dark theme that is easier on the eyes at night */
+:root[data-theme="ember"] {
+  color-scheme: dark;
+  --bg: #1a1614;
+  --surface: #241e1b;
+  --surface2: #2e2622;
+  --border: #44382f;
+  --text: #ece3da;
+  --muted: #a8998c;
+  --accent: #e8913a;
+  --accent-dim: #4d3314;
+  --accent-ink: #1a1614;
+  --green: #7cc27a;
+  --green-dim: #25422a;
+  --red: #e5655b;
+  --red-dim: #3b1c19;
+  --yellow: #e6c04a;
+  --yellow-dim: #4a3d12;
+  --purple: #b98ae0;
+  --purple-dim: #3d2a55;
+  --stripe: transparent;
+}
+/* High contrast dark: Black and white with strong colours, for low vision and glare */
+:root[data-theme="contrast-dark"] {
+  color-scheme: dark;
+  --bg: #000000;
+  --surface: #0b0b0b;
+  --surface2: #1c1c1c;
+  --border: #ffffff;
+  --text: #ffffff;
+  --muted: #d6d6d6;
+  --accent: #ffd400;
+  --accent-dim: #4d4000;
+  --accent-ink: #000000;
+  --green: #4dff88;
+  --green-dim: #003d1a;
+  --red: #ff6b6b;
+  --red-dim: #520000;
+  --yellow: #ffd400;
+  --yellow-dim: #4d4000;
+  --purple: #d6a8ff;
+  --purple-dim: #3d1a66;
+  --stripe: transparent;
+}
+/* High contrast white: Black on white with strong colours and black outlines, for low vision and sunlight */
+:root[data-theme="contrast-light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface2: #ececec;
+  --border: #000000;
+  --text: #000000;
+  --muted: #2e2e2e;
+  --accent: #0000cc;
+  --accent-dim: #d9d9ff;
+  --accent-ink: #ffffff;
+  --green: #005a00;
+  --green-dim: #d2f2d2;
+  --red: #a80000;
+  --red-dim: #ffd6d6;
+  --yellow: #6b4200;
+  --yellow-dim: #ffedb3;
+  --purple: #5200a3;
+  --purple-dim: #e8d9ff;
+  --stripe: transparent;
+}
+/* Liberty: Red, white and blue, like a Bomb Pop */
+:root[data-theme="liberty"] {
+  color-scheme: light;
+  --bg: #f2f5fb;
+  --surface: #ffffff;
+  --surface2: #e4ebf8;
+  --border: #a9b8d8;
+  --text: #0a2342;
+  --muted: #455b85;
+  --accent: #0a3161;
+  --accent-dim: #d6e0f5;
+  --accent-ink: #ffffff;
+  --green: #1b6b38;
+  --green-dim: #d8f0e0;
+  --red: #b31942;
+  --red-dim: #fbdde5;
+  --yellow: #8a5200;
+  --yellow-dim: #fdecc2;
+  --purple: #3a5bbf;
+  --purple-dim: #dde5fb;
+  --stripe: linear-gradient(90deg, #b31942 0 33.34%, #ffffff 33.34% 66.67%, #0a3161 66.67% 100%);
+}
+/* Hulk: Gamma green on deep purple, like the Incredible Hulk */
+:root[data-theme="hulk"] {
+  color-scheme: dark;
+  --bg: #140a1f;
+  --surface: #1e1230;
+  --surface2: #2b1a45;
+  --border: #573a8c;
+  --text: #f0e8ff;
+  --muted: #b9a3e0;
+  --accent: #6fe03a;
+  --accent-dim: #21481a;
+  --accent-ink: #140a1f;
+  --green: #7fe84e;
+  --green-dim: #1c3e14;
+  --red: #ff6b7d;
+  --red-dim: #4a1426;
+  --yellow: #f6c945;
+  --yellow-dim: #4a3b0c;
+  --purple: #bd90ff;
+  --purple-dim: #3b2475;
+  --stripe: linear-gradient(90deg, #6a2fb5 0 50%, #5ccd2d 50% 100%);
+}
+/* Neon: Electric cyan, magenta and lime on near-black */
+:root[data-theme="neon"] {
+  color-scheme: dark;
+  --bg: #07070f;
+  --surface: #0f0f1d;
+  --surface2: #191932;
+  --border: #4a3aa8;
+  --text: #f4f4ff;
+  --muted: #a9a9d6;
+  --accent: #00f0ff;
+  --accent-dim: #043c44;
+  --accent-ink: #02161a;
+  --green: #3dff1f;
+  --green-dim: #0e3d0a;
+  --red: #ff3d7a;
+  --red-dim: #4a0c25;
+  --yellow: #fff23a;
+  --yellow-dim: #4a4608;
+  --purple: #e04bff;
+  --purple-dim: #3f0b50;
+  --stripe: linear-gradient(90deg, #ff2a6d 0 25%, #d400ff 25% 50%, #00f0ff 50% 75%, #39ff14 75% 100%);
+}

@@ -48,7 +48,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-session_control = ["templates/*.html", "static/*.css", "static/*.js"]
+session_control = ["templates/*.html", "static/*.css", "static/*.js", "portfolio/*.css", "portfolio/*.js", "portfolio/*.sha256"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

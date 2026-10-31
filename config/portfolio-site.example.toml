@@ -1,0 +1,9 @@
+# Synthetic example of how this repository's pages are fronted.
+#
+# Real values (hostname, port) live in the owner-only portfolio site store, never here:
+# see traction-control docs/portfolio-sites.md. This file is only the fallback used when the
+# store has no entry, so it carries no private names or paths.
+#
+# fronting: wiring-harness-caddy, repo-caddy or direct
+[site]
+fronting = "direct"
