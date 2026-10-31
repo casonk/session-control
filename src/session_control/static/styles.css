@@ -1,18 +1,13 @@
 :root {
-  color-scheme: light dark;
-  --bg: #f6f7f2;
-  --panel: #ffffff;
-  --text: #20251f;
-  --muted: #647066;
-  --line: #cfd8cf;
-  --accent: #116a62;
-  --accent-strong: #0b514b;
-  --danger: #b42318;
-  --danger-bg: #fff0ee;
-  --ok-bg: #edf8f2;
-  --warn-bg: #fff7dc;
-  --code-bg: #eef2ed;
-  --shadow: 0 1px 3px rgb(16 24 40 / 12%);
+  /* Colours come from the portfolio system theme (/_portfolio/theme.css). */
+  --panel: var(--surface);
+  --line: var(--border);
+  --danger: var(--red);
+  --danger-bg: var(--red-dim);
+  --ok-bg: var(--green-dim);
+  --warn-bg: var(--yellow-dim);
+  --code-bg: var(--surface2);
+  --shadow: 0 1px 3px rgb(0 0 0 / 30%);
 }
 
 * {
@@ -113,12 +108,12 @@ h2 {
 .primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: #ffffff;
+  color: var(--accent-ink);
   font-weight: 800;
 }
 
 .danger {
-  border-color: #f1b8b4;
+  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
   background: var(--danger-bg);
   color: var(--danger);
   font-weight: 800;
@@ -313,26 +308,26 @@ select {
 .status {
   border-radius: 999px;
   padding: 5px 9px;
-  color: #ffffff;
+  color: var(--accent-ink);
   font-size: 0.74rem;
   font-weight: 900;
   text-transform: uppercase;
 }
 
 .provider.codex {
-  background: #174f7a;
+  background: var(--accent);
 }
 
 .provider.claude {
-  background: #7a4a22;
+  background: var(--yellow);
 }
 
 .provider.continue {
-  background: #295f48;
+  background: var(--green);
 }
 
 .provider.copilot {
-  background: #4a4f78;
+  background: color-mix(in srgb, var(--accent) 55%, var(--purple));
 }
 
 .status.active {
@@ -340,15 +335,15 @@ select {
 }
 
 .status.subagent {
-  background: #594289;
+  background: var(--purple);
 }
 
 .status.local {
-  background: #2f6b6b;
+  background: color-mix(in srgb, var(--green) 55%, var(--accent));
 }
 
 .status.short-subagent {
-  background: #936319;
+  background: color-mix(in srgb, var(--yellow) 60%, var(--red));
 }
 
 .session h2 {
@@ -556,20 +551,20 @@ select {
 
 .conn-pill.up {
   background: var(--ok-bg);
-  color: #166534;
-  border: 1px solid #bbf7d0;
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
 }
 
 .conn-pill.down {
   background: var(--danger-bg);
   color: var(--danger);
-  border: 1px solid #fca5a5;
+  border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
 }
 
 .conn-pill.unknown {
   background: var(--warn-bg);
-  color: #92400e;
-  border: 1px solid #fde68a;
+  color: var(--yellow);
+  border: 1px solid color-mix(in srgb, var(--yellow) 40%, transparent);
 }
 
 .spark-col {
@@ -627,7 +622,7 @@ select {
 }
 
 .event-kind.up {
-  color: #166534;
+  color: var(--green);
 }
 
 .event-kind.down {
