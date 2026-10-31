@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Load the portfolio top bar (`<script src="/_portfolio/chrome.js" defer></script>`, served by the shared Caddy) on every page, so the global navigation and theme rotator appear here too.
 - Ignore hidden directories in Copilot's session state, so its operation-lock
   directory no longer fails the scan and the daily prune job.
 - Add a **Machine load** page (`/ecu`, JSON at `/api/ecu`) showing the held lease
