@@ -592,9 +592,13 @@ def _iter_jsonl(path: Path):
                 if not line:
                     continue
                 try:
-                    yield json.loads(line)
+                    item = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                # callers read fields with .get(); a stray array, number or string line
+                # in a file another program wrote must not abort the whole scan
+                if isinstance(item, dict):
+                    yield item
     except OSError:
         return
 
@@ -681,11 +685,14 @@ def _extract_text(value: Any) -> str:
 
 
 def _best_user_text(values: list[str]) -> str:
-    cleaned = [_clean_text(value) for value in values if _clean_text(value)]
-    for value in cleaned:
-        if not _is_bootstrap_text(value):
-            return value
-    return cleaned[0] if cleaned else ""
+    # Markers such as <environment_context> are tags, which cleaning removes, so
+    # they are looked for in the raw text as well.
+    candidates = [(value, _clean_text(value)) for value in values]
+    candidates = [(raw, cleaned) for raw, cleaned in candidates if cleaned]
+    for raw, cleaned in candidates:
+        if not _is_bootstrap_text(raw) and not _is_bootstrap_text(cleaned):
+            return cleaned
+    return candidates[0][1] if candidates else ""
 
 
 def _is_bootstrap_text(value: str) -> bool:
