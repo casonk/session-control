@@ -1,5 +1,10 @@
 # Start informational: report coverage on pull requests without blocking them.
 # Add a target here once the baseline number is known.
+# The portfolio seam is a hash-pinned copy of traction-control/themes/portfolio_site.py and is
+# tested at its source, so it does not count against this repository.
+ignore:
+  - "src/session_control/portfolio/**"
+
 coverage:
   status:
     project:

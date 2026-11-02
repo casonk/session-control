@@ -69,3 +69,7 @@ indent-style = "space"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 ignore = ["E501", "B008", "SIM108"]
+
+[tool.coverage.run]
+# the vendored portfolio seam is tested at its source (traction-control)
+omit = ["src/session_control/portfolio/*"]
