@@ -20,7 +20,7 @@ jobs:
       install-extra: dev
 
   ci:
-    uses: casonk/.github/.github/workflows/python-ci.yml@feat/python-ci-coverage
+    uses: casonk/.github/.github/workflows/python-ci.yml@main
     with:
       python-versions: '["3.10", "3.11", "3.12"]'
       coverage: true
