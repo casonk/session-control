@@ -519,7 +519,9 @@ class SessionActionService:
                 if not dry_run:
                     shutil.rmtree(batch)
                     _remove_empty_trash_dirs(batch.parent, self.config.trash_dir)
-            except (OSError, ValueError):
+            except (OSError, ValueError, SessionActionError):
+                # A suspect entry (for example a symlinked folder that leaves the trash) is
+                # skipped; it must not stop the rest of the trash from rotating.
                 continue
         digests = self.digest_store.rotate(
             timedelta(days=self.config.digest_retention_days), dry_run=dry_run
