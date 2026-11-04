@@ -78,6 +78,20 @@ def create_app(
     app.secret_key = app_config.secret_key
 
     @app.before_request
+    def _refuse_unexpected_host() -> None:
+        """DNS-rebinding guard: only loopback, this site's registered name or a configured origin.
+
+        Runs first and for every method. A page on an attacker's hostname that resolves to
+        this machine sends that hostname as both Host and Origin, so the same-origin check below
+        cannot tell it from a real request (and the CSRF token is fetchable once it is "same
+        origin"). The Host header must itself be a name this service is reached by.
+        """
+        configured = [app_config.public_origin or "", *app_config.allowed_origins]
+        extra = [urlparse(value).hostname or "" for value in configured if value]
+        if not _portfolio_site().host_allowed(request.host, extra=extra):
+            abort(HTTPStatus.FORBIDDEN, description="Unexpected Host header.")
+
+    @app.before_request
     def _protect_state_changing_requests() -> None:
         if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
             return

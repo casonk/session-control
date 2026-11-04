@@ -26,8 +26,10 @@ directory it was looked up in, so a symlink cannot be used to read anything else
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -53,6 +55,7 @@ DEFAULTS: dict[str, Any] = {"fronting": "direct"}
 MAX_ASSET_BYTES = 2_000_000
 SITE_ENV = "PORTFOLIO_SITE_DIR"
 STORE_ENV = "PORTFOLIO_STORE"
+ALLOWED_HOSTS_ENV = "PORTFOLIO_ALLOWED_HOSTS"
 EXAMPLE_CONFIG = Path("config") / "portfolio-site.example.toml"
 
 
@@ -62,6 +65,80 @@ def default_store(env: Mapping[str, str] | None = None) -> Path:
         return Path(env[STORE_ENV])
     base = env.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / "traction-control" / "sites"
+
+
+def host_name(value: object) -> str:
+    """The lower-case hostname in a ``Host`` value: no port, brackets or trailing dot.
+
+    Only the first of a comma separated list counts, so ``Host: a, b`` cannot smuggle ``b``.
+    """
+    text = str(value or "").split(",", 1)[0].strip().lower()
+    if text.startswith("["):
+        end = text.find("]")
+        return text[1:end] if end != -1 else ""
+    if text.count(":") == 1:
+        text = text.rsplit(":", 1)[0]
+    return text.rstrip(".")
+
+
+def is_loopback_name(name: str) -> bool:
+    """True for ``localhost`` and any loopback address literal."""
+    if name == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
+
+
+def host_allowed(host_header: object, allowed: Iterable[str] = ()) -> bool:
+    """True when a request's own ``Host`` is a loopback name or one of ``allowed``.
+
+    This is the DNS-rebinding guard. A page on an attacker's hostname that resolves to a
+    loopback address sends that hostname as both ``Host`` and ``Origin``, so comparing the
+    two cannot tell it from a genuine request; only a list of the names the service answers
+    to can. Forwarded headers (``X-Forwarded-Host``) never authorise a request.
+    """
+    name = host_name(host_header)
+    return bool(name) and (is_loopback_name(name) or name in {host_name(item) for item in allowed})
+
+
+def _names(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    return [host_name(item) for item in value if isinstance(item, str) and host_name(item)]
+
+
+def store_hostnames(store: Path | str | None = None) -> frozenset[str]:
+    """Every site hostname in the central store (for a service shared by all sites)."""
+    root = Path(store) if store is not None else default_store()
+    names: set[str] = set()
+    try:
+        entries = [entry for entry in root.iterdir() if entry.is_dir() and not entry.name.startswith("_")]
+    except OSError:
+        return frozenset()
+    for entry in entries:
+        site = _read_toml(entry / "site.local.toml").get("site", {})
+        if isinstance(site, dict):
+            names.update(_names(site.get("hostname")))
+            names.update(_names(site.get("allowed_hosts")))
+    return frozenset(names)
+
+
+def registry_hostnames(portfolio_root: Path | str) -> frozenset[str]:
+    """Every service hostname in the wiring-harness registry (``services[.local].toml``)."""
+    base = Path(portfolio_root) / "util-repos" / "wiring-harness"
+    names: set[str] = set()
+    for filename in ("services.local.toml", "services.toml"):
+        services = _read_toml(base / filename).get("services", [])
+        if not isinstance(services, list):
+            continue
+        for service in services:
+            if isinstance(service, dict):
+                names.update(_names(service.get("hostname")))
+    return frozenset(names)
 
 
 def slug_dirname(slug: str) -> str:
@@ -155,6 +232,30 @@ class Site:
         if name == "nav.json":
             return EMPTY_NAV, ctype
         return None
+
+    def allowed_hosts(
+        self, extra: Iterable[str] = (), env: Mapping[str, str] | None = None
+    ) -> frozenset[str]:
+        """The non-loopback names this site answers to.
+
+        Its registered ``hostname`` and optional ``allowed_hosts`` (from the owner-only store
+        entry, so private names never appear in a tracked file), ``PORTFOLIO_ALLOWED_HOSTS``
+        (comma separated), and ``extra``.
+        """
+        env = os.environ if env is None else env
+        names = _names(self.settings.get("hostname")) + _names(self.settings.get("allowed_hosts"))
+        names += _names(str(env.get(ALLOWED_HOSTS_ENV, "")).split(","))
+        names += _names([str(item) for item in extra])
+        return frozenset(names)
+
+    def host_allowed(
+        self,
+        host_header: object,
+        extra: Iterable[str] = (),
+        env: Mapping[str, str] | None = None,
+    ) -> bool:
+        """``host_allowed`` for this site's own names."""
+        return host_allowed(host_header, self.allowed_hosts(extra, env))
 
     def response(self, request_path: str) -> tuple[bytes, str] | None:
         """The answer for ``/_portfolio/<name>`` (query string ignored), or None if not ours."""
