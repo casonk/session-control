@@ -634,3 +634,72 @@ def test_the_page_renders_usage_for_codex_and_claude_sessions(app_config):
     seed_codex(app_config.codex_root, token_count=True)
     seed_claude(app_config.claude_root)
     assert create_app(app_config).test_client().get("/").status_code == 200
+
+
+# --------------------------------------------------------------------------- DNS rebinding
+
+
+REBIND = {"Host": "evil.example", "Origin": "http://evil.example"}
+
+
+def test_a_rebinding_request_is_refused_for_every_method_even_with_a_valid_token(client, actions):
+    csrf = token(client)
+    assert client.get("/", headers={"Host": "evil.example"}).status_code == 403
+    for method in ("post", "put", "patch", "delete"):
+        response = getattr(client, method)(
+            "/sessions/x/delete",
+            data={"csrf_token": csrf},
+            headers={**REBIND, "X-CSRF-Token": csrf},
+        )
+        assert response.status_code == 403, method
+    assert actions.calls == []
+
+
+def test_the_refusal_comes_before_any_other_check_and_does_not_echo_the_host(client):
+    response = client.get("/", headers={"Host": "<b>x</b>.example"})
+    assert response.status_code == 403 and b"<b>x</b>" not in response.data
+
+
+def test_loopback_hosts_still_work_with_and_without_ports(client):
+    for host in ("localhost", "localhost:5420", "127.0.0.1:5420", "[::1]:5420"):
+        assert client.get("/", headers={"Host": host}).status_code == 200, host
+
+
+def test_lookalike_hosts_are_refused(client):
+    for host in ("localhost.evil.example", "127.0.0.1.evil.example", "evil.example:5420", ""):
+        assert client.get("/", headers={"Host": host}).status_code == 403, host
+
+
+def test_a_forwarded_host_does_not_authorise_a_request(client):
+    headers = {"Host": "evil.example", "X-Forwarded-Host": "localhost", "X-Forwarded-Proto": "http"}
+    assert client.get("/", headers=headers).status_code == 403
+
+
+def test_configured_public_and_allowed_origin_hosts_are_accepted(app_config, actions):
+    config = replace(
+        app_config,
+        public_origin="https://sessions.example.test",
+        allowed_origins=("https://alt.example.test:8443",),
+    )
+    client = create_app(config, actions=actions).test_client()
+    for host in ("sessions.example.test", "alt.example.test:8443", "Sessions.Example.Test"):
+        assert client.get("/", headers={"Host": host}).status_code == 200, host
+    assert client.get("/", headers={"Host": "other.example.test"}).status_code == 403
+
+
+def test_the_sites_registered_hostname_is_accepted(app_config, actions, tmp_path, monkeypatch):
+    entry = tmp_path / "owner__repo"
+    entry.mkdir()
+    (entry / "site.local.toml").write_text('[site]\nhostname = "registered.example.test"\n')
+    monkeypatch.setenv("PORTFOLIO_SITE_DIR", str(entry))
+    monkeypatch.setenv("PORTFOLIO_STORE", str(tmp_path))
+    client = create_app(app_config, actions=actions).test_client()
+    assert client.get("/", headers={"Host": "registered.example.test"}).status_code == 200
+    assert client.get("/", headers={"Host": "evil.example"}).status_code == 403
+
+
+def test_the_federation_ingest_route_is_guarded_too(client):
+    response = client.post(
+        "/api/federation/v1/inventories/node", json={}, headers={"Host": "evil.example"}
+    )
+    assert response.status_code == 403
