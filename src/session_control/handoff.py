@@ -19,8 +19,16 @@ from typing import Any
 from session_control.models import SessionRecord
 from session_control.scanner import _extract_text, _is_bootstrap_text
 
-# Target provider -> executable that accepts the opening prompt as its positional argument.
-HANDOFF_TARGETS: dict[str, str] = {"claude": "claude", "codex": "codex"}
+# Target provider -> argv prefix that starts an interactive session whose opening prompt is
+# appended as the final argument (positional for most CLIs, behind -i for Copilot and AGY).
+HANDOFF_TARGETS: dict[str, tuple[str, ...]] = {
+    "claude": ("claude",),
+    "codex": ("codex",),
+    "grok": ("grok",),
+    "continue": ("cn",),
+    "copilot": ("copilot", "-i"),
+    "agy": ("agy", "-i"),
+}
 
 MAX_TURNS = 24
 MAX_TURN_CHARS = 1500
@@ -111,7 +119,7 @@ def handoff_command(session: SessionRecord, target: str, brief_path: Path) -> st
         "session on this work. Summarize your understanding of where things stand, then "
         "continue from there once I confirm."
     )
-    command = f"{HANDOFF_TARGETS[target]} {shlex.quote(prompt)}"
+    command = " ".join(shlex.quote(part) for part in (*HANDOFF_TARGETS[target], prompt))
     if session.workspace:
         return f"cd {shlex.quote(session.workspace)} && {command}"
     return command

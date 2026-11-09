@@ -19,9 +19,27 @@ def _sessions(app_config):
 
 
 def test_targets_exclude_the_sessions_own_provider():
-    assert handoff.handoff_targets_for("codex") == ("claude",)
-    assert handoff.handoff_targets_for("claude") == ("codex",)
-    assert set(handoff.handoff_targets_for("grok")) == {"claude", "codex"}
+    everywhere = {"claude", "codex", "grok", "continue", "copilot", "agy"}
+    assert set(handoff.HANDOFF_TARGETS) == everywhere
+    for provider in everywhere:
+        assert set(handoff.handoff_targets_for(provider)) == everywhere - {provider}
+
+
+@pytest.mark.parametrize(
+    ("target", "prefix"),
+    [
+        ("claude", "claude "),
+        ("grok", "grok "),
+        ("continue", "cn "),
+        ("copilot", "copilot -i "),
+        ("agy", "agy -i "),
+    ],
+)
+def test_every_target_gets_its_own_launch_syntax(app_config, tmp_path, target, prefix):
+    seed_codex(app_config.codex_root)
+    session = _sessions(app_config)["codex"]
+    command = handoff.handoff_command(session, target, tmp_path / "b.md")
+    assert command.startswith(f"cd /workspace/example-project && {prefix}'Read ")
 
 
 def test_claude_brief_has_conversation_and_skips_tool_parts(app_config):
