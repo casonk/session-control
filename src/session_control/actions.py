@@ -18,6 +18,13 @@ from session_control.codex_permissions import (
 from session_control.config import AppConfig
 from session_control.dedup import DEFAULT_SIMILARITY, find_duplicate_groups
 from session_control.digests import DigestStore
+from session_control.handoff import (
+    HandoffError,
+    build_brief,
+    handoff_command,
+    recent_turns,
+    write_brief,
+)
 from session_control.models import ScanError, SessionRecord
 from session_control.scanner import SessionScanner
 
@@ -123,7 +130,29 @@ class SessionActionService:
             session,
             codex_permission_preset=codex_permission_preset or self.config.codex_permission_preset,
         )
-        window_name = session.title[:20].strip() or session.session_id[:12]
+        return self._launch_window(session, command)
+
+    def prepare_handoff(self, public_id: str, target: str) -> tuple[SessionRecord, Path, str]:
+        """Write the context brief for a session and return its handoff launch command."""
+        session = self._find(public_id)
+        try:
+            brief = build_brief(session, recent_turns(session))
+            path = write_brief(self.config.trash_dir.parent / "handoffs", session, brief)
+            return session, path, handoff_command(session, target, path)
+        except HandoffError as exc:
+            raise SessionActionError(str(exc)) from exc
+        except OSError as exc:
+            raise SessionActionError(f"Could not write the handoff brief: {exc}") from exc
+
+    def handoff_in_webterm(self, public_id: str, target: str) -> OpenResult:
+        """Start a new session in another provider that reads this session's brief."""
+        session, _path, command = self.prepare_handoff(public_id, target)
+        return self._launch_window(session, command, name_prefix=f"{target}:")
+
+    def _launch_window(
+        self, session: SessionRecord, command: str, *, name_prefix: str = ""
+    ) -> OpenResult:
+        window_name = (name_prefix + session.title[:20].strip()) or session.session_id[:12]
         self._ensure_tmux_session()
         result = subprocess.run(
             [

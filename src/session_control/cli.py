@@ -9,6 +9,7 @@ import os
 import re
 import ssl
 import stat
+import sys
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -27,6 +28,7 @@ from session_control.actions import (
 from session_control.config import AppConfig
 from session_control.dedup import DEFAULT_SIMILARITY
 from session_control.federation import build_inventory
+from session_control.handoff import HANDOFF_TARGETS
 from session_control.scanner import PROVIDERS, SessionScanner
 from session_control.web import create_app
 
@@ -219,6 +221,19 @@ def _build_parser() -> argparse.ArgumentParser:
     dedup.add_argument("--dry-run", action="store_true", help="show what would be merged")
     dedup.add_argument("--json", action="store_true", help="print the report as JSON")
 
+    handoff = subparsers.add_parser(
+        "handoff",
+        help="continue a session in a different provider via a context brief",
+    )
+    handoff.add_argument("session", help="session public id, as shown by `scan --json`")
+    handoff.add_argument(
+        "--to",
+        dest="target",
+        required=True,
+        choices=sorted(HANDOFF_TARGETS),
+        help="target provider",
+    )
+    handoff.add_argument("--run", action="store_true", help="run the target CLI here")
     restore = subparsers.add_parser("restore", help="restore a session from local trash")
     restore.add_argument(
         "trash_id",
@@ -353,6 +368,20 @@ def main(argv: list[str] | None = None) -> int:
         trash_count, digest_count = SessionActionService(config).rotate(dry_run=args.dry_run)
         verb = "Would expire" if args.dry_run else "Expired"
         print(f"{verb} {trash_count} trash entries and {digest_count} digest records.")
+        return 0
+
+    if args.command == "handoff":
+        try:
+            _session, brief_path, command = SessionActionService(config).prepare_handoff(
+                args.session, args.target
+            )
+        except SessionActionError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"Brief: {brief_path}")
+        if args.run:
+            os.execvp("bash", ["bash", "-lc", command])
+        print(f"Run: {command}")
         return 0
 
     if args.command == "restore":

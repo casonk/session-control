@@ -107,6 +107,20 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button primary" type="submit">Open in Web Terminal</button>
         </form>
+        {% if handoff_targets %}
+          <form method="post" action="{{ url_for('handoff_session', public_id=session.public_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>
+              Continue in
+              <select name="target" aria-label="Continue this work in another provider">
+                {% for target in handoff_targets %}
+                  <option value="{{ target }}">{{ target }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button class="button" type="submit" title="Starts a new session that reads a summary of this one">Hand off</button>
+          </form>
+        {% endif %}
         <form method="post" action="{{ url_for('delete_session', public_id=session.public_id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button danger" type="submit" {% if session.active %}disabled{% endif %}>Delete Session</button>

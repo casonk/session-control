@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add a cross-provider **handoff**: continue a Codex, Claude Code or other session in a different provider. It writes a private context brief (recent conversation for Codex and Claude Code sources, the opening message otherwise) and starts a new Claude Code or Codex session that reads it. Use the "Continue in" control on the session page or `session-control handoff <id> --to claude|codex`.
 - Refuse every request whose `Host` header is not a loopback name, this site's registered hostname (from the portfolio site store), or the host of `SESSION_CONTROL_PUBLIC_ORIGIN` / `SESSION_CONTROL_ALLOWED_ORIGINS`, before the origin and CSRF checks. A DNS-rebinding page sent its own hostname as both `Host` and `Origin`, passed the same-origin check, and could fetch the CSRF token to delete or open sessions. The shared check lives in the vendored portfolio site seam (re-vendored here). **Upgrade note:** a deployment reached through a proxy under a name that is neither registered nor listed in `SESSION_CONTROL_ALLOWED_ORIGINS` will get 403.
 
 - Re-vendor the portfolio theme fallback: the top bar's theme menu offers This site / Everywhere and "Follow the global theme".
