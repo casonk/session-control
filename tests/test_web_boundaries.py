@@ -703,3 +703,10 @@ def test_the_federation_ingest_route_is_guarded_too(client):
         "/api/federation/v1/inventories/node", json={}, headers={"Host": "evil.example"}
     )
     assert response.status_code == 403
+
+
+def test_datetime_filters_survive_out_of_range_timestamps(app_config):
+    env = create_app(app_config).jinja_env
+    for stamp in ("0001-01-01T00:00:00+00:00", "0001-01-01T00:00:00-05:00"):
+        assert isinstance(env.filters["datetime"](stamp), str)
+        assert isinstance(env.filters["age"](stamp), str)

@@ -58,3 +58,11 @@ change how future sessions work in this repo.
 - After a chat-directed local removal, tell the user plainly to close or delete
   the hosted chat themselves. Do not describe a moved local file or an ended
   agent turn as termination of the hosted conversation.
+- Provider timestamps can be sentinel values: Antigravity (`agy`) sessions may
+  report Go's zero time (`0001-01-01T00:00:00Z`). It parses fine but
+  `astimezone()` raises `OverflowError`, and an unguarded template filter turns
+  that one record into a 500 on the whole index page. Template filters and
+  display helpers must never raise on data read from provider storage: catch
+  `OverflowError`/`OSError`/`ValueError` and degrade to the raw value or
+  "unknown". Reproduce with `session-control scan --json` against real local
+  data, and cover sentinel timestamps in `tests/` fixtures.
