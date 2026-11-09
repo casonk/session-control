@@ -349,14 +349,20 @@ def create_app(
         parsed = _parse_datetime(value)
         if not parsed:
             return value
-        return parsed.astimezone().strftime("%Y-%m-%d %H:%M")
+        try:
+            return parsed.astimezone().strftime("%Y-%m-%d %H:%M")
+        except (OverflowError, OSError, ValueError):
+            return value
 
     @app.template_filter("age")
     def _age_filter(value: str) -> str:
         parsed = _parse_datetime(value)
         if not parsed:
             return "unknown"
-        delta = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+        try:
+            delta = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return "unknown"
         days = delta.days
         if days >= 365:
             return f"{days // 365}y"
