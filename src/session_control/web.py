@@ -34,6 +34,7 @@ from session_control.config import AppConfig
 from session_control.connection_monitor import ConnectionMonitor, targets_from_config
 from session_control.ecu_status import read_status as read_ecu_status
 from session_control.federation import build_inventory, load_inventories, store_inventory
+from session_control.handoff import handoff_targets_for
 from session_control.models import SessionRecord
 from session_control.scanner import PROVIDERS, SessionScanner
 
@@ -156,6 +157,7 @@ def create_app(
             webterm_url=app_config.webterm_url,
             codex_permission_presets=CODEX_PERMISSION_PRESET_CHOICES,
             codex_permission_default=app_config.codex_permission_preset,
+            handoff_targets=handoff_targets_for(session_record.provider),
         )
 
     @app.get("/api/sessions")
@@ -277,6 +279,18 @@ def create_app(
                 public_id,
                 codex_permission_preset=codex_permission_preset,
             )
+        except SessionActionError as exc:
+            flash(str(exc), "error")
+            return redirect(request.referrer or url_for("index"))
+        return redirect(_term_url(app_config.webterm_url, getattr(result, "window_index", None)))
+
+    @app.post("/sessions/<public_id>/handoff")
+    def handoff_session(public_id: str):
+        if not app_config.webterm_url:
+            flash("Web terminal URL is not configured (SESSION_CONTROL_WEBTERM_URL).", "error")
+            return redirect(request.referrer or url_for("index"))
+        try:
+            result = app_actions.handoff_in_webterm(public_id, request.form.get("target", ""))
         except SessionActionError as exc:
             flash(str(exc), "error")
             return redirect(request.referrer or url_for("index"))

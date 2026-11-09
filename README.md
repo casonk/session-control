@@ -104,6 +104,21 @@ Set `SESSION_CONTROL_CODEX_RESUME_MODEL` to force a known-good Codex model for
 web-launched resumes when the global Codex default is not supported by the
 machine's current auth mode.
 
+## Continue in a different provider
+
+A transcript can only be resumed by the provider that wrote it, so switching
+provider is a handoff: session-control writes a context brief (title, workspace
+and, for Codex and Claude Code sources, the recent conversation) under
+`~/.local/share/session-control/handoffs/` and starts a **new** Claude Code or
+Codex session that reads it first. Use "Continue in" on a session's page, or:
+
+```bash
+session-control handoff <public-id> --to claude   # prints the brief path and command
+session-control handoff <public-id> --to codex --run
+```
+
+Treat the brief as a summary, not a transcript. Other providers are sources only.
+
 ## Subagent sessions
 
 The session list marks recognized subagents and provides a **Session origin**
