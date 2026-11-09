@@ -235,8 +235,9 @@ def test_rotating_a_missing_store_expires_nothing(tmp_path):
 
 
 def test_digest_filenames_do_not_reveal_the_session(tmp_path):
-    path = DigestStore(tmp_path).record(record(), reason="delete")
-    assert "abc" not in path.name and len(path.stem) == 64
+    # A non-hex id: a hex digest can contain "abc" by chance, which made this flaky.
+    path = DigestStore(tmp_path).record(record(session_id="session-xyz"), reason="delete")
+    assert "session-xyz" not in path.name and len(path.stem) == 64
 
 
 # --------------------------------------------------------------------------- models
