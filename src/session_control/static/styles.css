@@ -23,7 +23,8 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font, system-ui, -apple-system, "Segoe UI", sans-serif);
+  font-size: var(--font-size, 14px);
 }
 
 button,
@@ -58,8 +59,8 @@ dl {
 }
 
 h1 {
-  font-size: clamp(1.8rem, 1.3rem + 1.2vw, 2.5rem);
-  line-height: 1.05;
+  font-size: 1.25rem;
+  line-height: 1.2;
 }
 
 h2 {
@@ -374,7 +375,7 @@ select {
   background: var(--code-bg);
   padding: 10px;
   color: var(--text);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--mono, ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace);
   font-size: 0.86rem;
   overflow-x: auto;
 }
@@ -518,12 +519,12 @@ select {
   display: block;
   font-size: 0.76rem;
   color: var(--muted);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--mono, ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace);
 }
 
 .conn-num {
   font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--mono, ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace);
   font-size: 0.88rem;
 }
 
@@ -572,7 +573,7 @@ select {
 }
 
 .sparkline {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--mono, ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace);
   font-size: 0.88rem;
   letter-spacing: 1px;
   color: var(--accent);
@@ -606,7 +607,7 @@ select {
 }
 
 .event-ts {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--mono, ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace);
   color: var(--muted);
   font-size: 0.82rem;
 }
