@@ -4,7 +4,7 @@ Providers store transcripts in incompatible formats, so a Codex session cannot b
 resumed natively by Claude Code (or the reverse). A handoff instead writes a markdown
 brief from the source session and starts a *new* session in the target CLI, told to read
 it first. The brief holds the title, workspace and, where the transcript format is
-understood (Codex and Claude Code), the most recent conversation turns.
+understood (Codex, Claude Code and Grok), the most recent conversation turns.
 """
 
 from __future__ import annotations
@@ -57,6 +57,8 @@ def recent_turns(session: SessionRecord, *, limit: int = MAX_TURNS) -> list[Turn
         turns = _codex_turns(session.primary_path)
     elif session.provider == "claude":
         turns = _claude_turns(session.primary_path)
+    elif session.provider == "grok":
+        turns = _grok_turns(session.primary_path / "updates.jsonl")
     else:
         return []
     return turns[-limit:]
@@ -202,4 +204,66 @@ def _claude_turns(path: Path) -> list[Turn]:
         turn = _keep(role, _extract_text(content))
         if turn:
             turns.append(turn)
+    return turns
+
+
+_GROK_USER_CHUNK = "user_message_chunk"
+_GROK_AGENT_CHUNK = "agent_message_chunk"
+# Streamed events that sit between a speaker's chunks: tool work ends a run of text, so
+# the next chunk from the same speaker starts a new paragraph instead of fusing words.
+_GROK_BREAKS = ("tool_call", "turn_completed")
+
+
+def _grok_turns(path: Path) -> list[Turn]:
+    """Merge Grok's streamed message chunks into one turn per speaker run.
+
+    Grok writes ``updates.jsonl`` as thousands of small events; only the user and agent
+    message chunks carry conversation text, so other lines are skipped before parsing.
+    """
+    turns: list[Turn] = []
+    role: str | None = None
+    parts: list[str] = []
+    gap = False
+
+    def flush() -> None:
+        if role and parts:
+            turn = _keep(role, "".join(parts))
+            if turn:
+                turns.append(turn)
+
+    try:
+        handle = path.open("r", encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    with handle:
+        for line in handle:
+            if "message_chunk" not in line and not any(b in line for b in _GROK_BREAKS):
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            params = row.get("params") if isinstance(row, dict) else None
+            update = params.get("update") if isinstance(params, dict) else None
+            if not isinstance(update, dict):
+                continue
+            kind = update.get("sessionUpdate")
+            if kind in _GROK_BREAKS:
+                gap = True
+                continue
+            if kind not in (_GROK_USER_CHUNK, _GROK_AGENT_CHUNK):
+                continue
+            content = update.get("content")
+            text = content.get("text") if isinstance(content, dict) else None
+            if not isinstance(text, str):
+                continue
+            speaker = "user" if kind == _GROK_USER_CHUNK else "assistant"
+            if speaker != role:
+                flush()
+                role, parts, gap = speaker, [], False
+            elif gap:
+                parts.append("\n\n")
+                gap = False
+            parts.append(text)
+    flush()
     return turns

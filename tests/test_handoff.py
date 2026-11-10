@@ -195,3 +195,54 @@ def test_list_page_offers_a_handoff_on_every_row(app_config):
         row = page.split(f'action="/sessions/{session.public_id}/handoff"')[1].split("</form>")[0]
         assert f'<option value="{provider}">' not in row
         assert '<option value="grok">' in row
+
+
+def _grok_event(kind: str, **update):
+    return {
+        "method": "session/update",
+        "params": {"sessionId": "s", "update": {"sessionUpdate": kind, **update}},
+    }
+
+
+def _grok_text(kind: str, text: str):
+    return _grok_event(kind, content={"type": "text", "text": text})
+
+
+def test_grok_brief_merges_streamed_chunks_and_skips_tool_noise(app_config):
+    from tests.helpers import seed_grok
+
+    session_dir = seed_grok(app_config.grok_root)
+    write_jsonl(
+        session_dir / "updates.jsonl",
+        [
+            _grok_text("user_message_chunk", "Repair the "),
+            _grok_text("user_message_chunk", "Grok integration"),
+            _grok_text("agent_thought_chunk", "private reasoning that must not leak"),
+            _grok_text("agent_message_chunk", "Reading the code."),
+            _grok_event("tool_call", toolCallId="t1", title="Read", rawInput={"path": "x"}),
+            _grok_event("tool_call_update", toolCallId="t1", title="Read"),
+            _grok_text("agent_message_chunk", "Fixed the bug."),
+            _grok_event("turn_completed", stop_reason="end_turn"),
+            _grok_text("user_message_chunk", "Thanks, now add tests"),
+        ],
+    )
+    session = _sessions(app_config)["grok"]
+    turns = handoff.recent_turns(session)
+    assert [(t.role, t.text) for t in turns] == [
+        ("User", "Repair the Grok integration"),
+        ("Assistant", "Reading the code.\n\nFixed the bug."),
+        ("User", "Thanks, now add tests"),
+    ]
+    brief = handoff.build_brief(session, turns)
+    assert "Recent conversation" in brief and "private reasoning" not in brief
+
+
+def test_grok_turns_tolerate_missing_or_garbled_transcripts(app_config, tmp_path):
+    assert handoff._grok_turns(tmp_path / "absent.jsonl") == []
+    broken = tmp_path / "updates.jsonl"
+    broken.write_text(
+        'not json message_chunk\n{"params": 1, "x": "message_chunk"}\n'
+        '{"params": {"update": {"sessionUpdate": "user_message_chunk", "content": 7}}}\n',
+        encoding="utf-8",
+    )
+    assert handoff._grok_turns(broken) == []
