@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,7 +11,7 @@ import pytest
 
 from session_control.actions import SessionActionError, SessionActionService
 from session_control.scanner import SessionScanner
-from tests.helpers import seed_codex, seed_continue, seed_copilot, write_json
+from tests.helpers import seed_agy, seed_codex, seed_continue, seed_copilot, seed_grok, write_json
 
 
 def test_delete_moves_continue_session_to_trash_and_updates_index(app_config):
@@ -62,6 +63,112 @@ def test_restore_refuses_to_overwrite_existing_path(app_config):
 def test_restore_refuses_a_traversal_path(app_config):
     with pytest.raises(SessionActionError, match="relative timestamp/provider/session-id"):
         SessionActionService(app_config).restore("../continue/session")
+
+
+def test_delete_and_restore_grok_session_directory(app_config):
+    session_dir = seed_grok(app_config.grok_root)
+    scanner = SessionScanner(app_config)
+    session = scanner.scan(providers=("grok",)).sessions[0]
+    actions = SessionActionService(app_config, scanner)
+
+    deleted = actions.delete(session.public_id)
+    search_path = app_config.grok_root / "sessions" / "session_search.sqlite"
+    with sqlite3.connect(search_path) as connection:
+        assert connection.execute("SELECT count(*) FROM session_docs").fetchone() == (0,)
+
+    restored = actions.restore(actions.list_trash()[0].trash_id)
+    with sqlite3.connect(search_path) as connection:
+        search_row = connection.execute(
+            "SELECT session_id FROM session_docs WHERE session_id = ?", (session.session_id,)
+        ).fetchone()
+        fts_row = connection.execute(
+            "SELECT title FROM session_docs_fts WHERE session_docs_fts MATCH 'integration'"
+        ).fetchone()
+
+    assert deleted.moved_count == 1
+    assert restored.restored_to == (session_dir,)
+    assert session_dir.is_dir()
+    assert search_row == (session.session_id,)
+    assert fts_row == ("Repair the Grok integration",)
+
+
+def test_delete_and_restore_agy_session_and_summary_index(app_config):
+    conversation = seed_agy(app_config.agy_root)
+    scanner = SessionScanner(app_config)
+    session = scanner.scan(providers=("agy",)).sessions[0]
+    actions = SessionActionService(app_config, scanner)
+    index_path = app_config.agy_root / "conversation_summaries.db"
+
+    deleted = actions.delete(session.public_id)
+    with sqlite3.connect(index_path) as connection:
+        assert connection.execute("SELECT count(*) FROM conversation_summaries").fetchone() == (0,)
+
+    restored = actions.restore(actions.list_trash()[0].trash_id)
+    with sqlite3.connect(index_path) as connection:
+        row = connection.execute(
+            "SELECT title, raw_summary FROM conversation_summaries WHERE conversation_id = ?",
+            (session.session_id,),
+        ).fetchone()
+
+    assert deleted.moved_count == 2
+    assert conversation in restored.restored_to
+    assert row == ("Build an Antigravity command", b"synthetic-summary")
+
+
+def test_agy_restore_validates_index_metadata_before_moving_files(app_config):
+    conversation = seed_agy(app_config.agy_root)
+    scanner = SessionScanner(app_config)
+    session = scanner.scan(providers=("agy",)).sessions[0]
+    actions = SessionActionService(app_config, scanner)
+
+    deleted = actions.delete(session.public_id)
+    manifest_path = deleted.moved_to / ".session-control-restore.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["provider_metadata"]["agy_summary"] = {"conversation_id": session.session_id}
+    write_json(manifest_path, manifest)
+
+    with pytest.raises(SessionActionError, match="invalid provider index metadata"):
+        actions.restore(actions.list_trash()[0].trash_id)
+
+    assert not conversation.exists()
+    assert (deleted.moved_to / conversation.name).exists()
+
+
+def test_delete_refuses_active_grok_and_agy_sessions(app_config):
+    seed_grok(app_config.grok_root, active=True)
+    grok = SessionScanner(app_config).scan(providers=("grok",)).sessions[0]
+    with pytest.raises(SessionActionError, match="active"):
+        SessionActionService(app_config)._delete_session(grok, kill_windows=False)
+
+    seed_agy(app_config.agy_root, active=True)
+    agy = SessionScanner(app_config).scan(providers=("agy",)).sessions[0]
+    with pytest.raises(SessionActionError, match="active"):
+        SessionActionService(app_config)._delete_session(agy, kill_windows=False)
+
+
+@pytest.mark.parametrize("provider", ["grok", "agy"])
+def test_deduplicate_refuses_opaque_database_providers_before_moving_files(app_config, provider):
+    seed = seed_grok if provider == "grok" else seed_agy
+    root = app_config.provider_root(provider)
+    first_path = seed(root)
+    first = SessionScanner(app_config).scan(providers=(provider,)).sessions[0]
+    second_id = (
+        "01a19191-eee0-7bc0-ba72-faf1ec22edd9"
+        if provider == "grok"
+        else "1ef48ec7-d3ae-4273-b772-2754f2f36e3c"
+    )
+    second_path = seed(root, session_id=second_id)
+    second = next(
+        item
+        for item in SessionScanner(app_config).scan(providers=(provider,)).sessions
+        if item.session_id == second_id
+    )
+
+    with pytest.raises(SessionActionError, match="not supported"):
+        SessionActionService(app_config)._merge_group([first, second])
+
+    assert first_path.exists()
+    assert second_path.exists()
 
 
 def test_open_creates_and_selects_persistent_tmux_window(app_config, monkeypatch):

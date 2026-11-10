@@ -257,10 +257,62 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     web.add_argument("--debug", action="store_true")
 
+    from session_control.profile_cli import build_profile_subparser
+
+    profile_p = subparsers.add_parser(
+        "profile", help="manage Google AGY profiles, routing, and token usage"
+    )
+    build_profile_subparser(profile_p)
+    subparsers.add_parser(
+        "grok-profile",
+        help="manage isolated Grok accounts, routing, and token usage",
+    )
+    subparsers.add_parser(
+        "codex-profile",
+        help="manage isolated Codex accounts, routing, and token usage",
+    )
+    subparsers.add_parser(
+        "claude-profile",
+        help="manage isolated Claude Code accounts, routing, and token usage",
+    )
+    subparsers.add_parser(
+        "continue-profile",
+        help="manage isolated Continue accounts, routing, and token usage",
+    )
+    subparsers.add_parser(
+        "copilot-profile",
+        help="manage isolated Copilot CLI accounts, routing, and token usage",
+    )
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if raw_argv and raw_argv[0] == "grok-profile":
+        from session_control.grok_profile_cli import main as grok_profile_main
+
+        return grok_profile_main(raw_argv[1:])
+    if raw_argv and raw_argv[0] in {
+        "codex-profile",
+        "claude-profile",
+        "continue-profile",
+        "copilot-profile",
+    }:
+        from session_control.provider_profile_cli import (
+            claude_main,
+            codex_main,
+            continue_main,
+            copilot_main,
+        )
+
+        dispatch = {
+            "codex-profile": codex_main,
+            "claude-profile": claude_main,
+            "continue-profile": continue_main,
+            "copilot-profile": copilot_main,
+        }
+        return dispatch[raw_argv[0]](raw_argv[1:])
     _load_default_env()
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -412,6 +464,42 @@ def main(argv: list[str] | None = None) -> int:
             for path in result.restored_to:
                 print(f"  -> {path}")
         return 0
+
+    if args.command == "profile":
+        from session_control.profile_cli import (
+            _cmd_add,
+            _cmd_current,
+            _cmd_harvest,
+            _cmd_list,
+            _cmd_remove,
+            _cmd_route,
+            _cmd_run,
+            _cmd_switch,
+            _cmd_usage,
+        )
+
+        sub = getattr(args, "profile_subcommand", None)
+        if sub == "list":
+            return _cmd_list(args)
+        elif sub == "current":
+            return _cmd_current(args)
+        elif sub == "switch":
+            return _cmd_switch(args)
+        elif sub == "add":
+            return _cmd_add(args)
+        elif sub == "remove":
+            return _cmd_remove(args)
+        elif sub == "route":
+            return _cmd_route(args)
+        elif sub == "usage":
+            return _cmd_usage(args)
+        elif sub == "harvest":
+            return _cmd_harvest(args)
+        elif sub == "run":
+            return _cmd_run(args, [])
+        else:
+            parser.parse_args(["profile", "--help"])
+            return 0
 
     parser.error(f"unknown command: {args.command}")
     return 2

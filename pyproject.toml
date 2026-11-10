@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [
   { name = "Cason Konzer", email = "casonk@umich.edu" },
 ]
-keywords = ["ai", "sessions", "codex", "claude", "copilot", "continue", "flask"]
+keywords = ["ai", "sessions", "codex", "claude", "copilot", "continue", "grok", "antigravity", "flask"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
@@ -35,6 +35,12 @@ dev = [
 
 [project.scripts]
 session-control = "session_control.cli:main"
+agy-profile = "session_control.profile_cli:main"
+grok-profile = "session_control.grok_profile_cli:main"
+codex-profile = "session_control.provider_profile_cli:codex_main"
+claude-profile = "session_control.provider_profile_cli:claude_main"
+continue-profile = "session_control.provider_profile_cli:continue_main"
+copilot-profile = "session_control.provider_profile_cli:copilot_main"
 
 [project.urls]
 Homepage = "https://github.com/casonk/session-control"

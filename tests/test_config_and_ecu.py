@@ -41,6 +41,8 @@ def test_defaults_live_under_the_home_directory(clean_env):
     assert config.claude_root == clean_env / ".claude"
     assert config.continue_root == clean_env / ".continue"
     assert config.copilot_root == clean_env / ".copilot"
+    assert config.grok_root == clean_env / ".grok"
+    assert config.agy_root == clean_env / ".gemini/antigravity-cli"
     assert config.trash_dir == clean_env / ".local/share/session-control/trash"
     assert config.digest_dir == clean_env / ".local/share/session-control/digests"
     assert config.crew_chief_registry == clean_env / ".local/state/crew-chief/code-sessions.jsonl"
@@ -90,7 +92,7 @@ def test_the_crew_chief_registry_follows_xdg_state_home(clean_env, monkeypatch):
 
 def test_provider_root_picks_the_matching_directory(clean_env):
     config = AppConfig.from_env()
-    for provider in ("codex", "claude", "continue", "copilot"):
+    for provider in ("codex", "claude", "continue", "copilot", "grok", "agy"):
         assert config.provider_root(provider) == getattr(config, f"{provider}_root")
     with pytest.raises(KeyError):
         config.provider_root("unknown")

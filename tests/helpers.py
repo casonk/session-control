@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 
@@ -238,3 +239,143 @@ def seed_copilot(root: Path, session_id: str = "3e6d83f8-5629-47d2-9a64-2779c509
         encoding="utf-8",
     )
     return session_dir
+
+
+def seed_grok(
+    root: Path, session_id: str = "01a19190-eee0-7bc0-ba72-faf1ec22edd8", active: bool = False
+) -> Path:
+    session_dir = root / "sessions" / "%2Fworkspace%2Fgrok-project" / session_id
+    write_json(
+        session_dir / "summary.json",
+        {
+            "info": {"id": session_id, "cwd": "/workspace/grok-project"},
+            "generated_title": "Repair the Grok integration",
+            "session_summary": "Repair the Grok integration and add regression coverage.",
+            "created_at": "2026-11-01T10:00:00Z",
+            "updated_at": "2026-11-01T10:05:00Z",
+            "num_chat_messages": 4,
+            "current_model_id": "grok-code-fast-1",
+            "reasoning_effort": "high",
+        },
+    )
+    write_jsonl(
+        session_dir / "updates.jsonl",
+        [
+            {
+                "method": "session/update",
+                "timestamp": "2026-11-01T10:00:00Z",
+                "params": {
+                    "sessionId": session_id,
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "Repair the Grok integration"},
+                    },
+                },
+            }
+        ],
+    )
+    write_json(root / "active_sessions.json", [{"session_id": session_id}] if active else [])
+    search_path = root / "sessions" / "session_search.sqlite"
+    with sqlite3.connect(search_path) as connection:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS session_docs (
+                session_id TEXT PRIMARY KEY, cwd TEXT NOT NULL, updated_at INTEGER NOT NULL,
+                title TEXT NOT NULL, content TEXT NOT NULL, content_hash TEXT NOT NULL
+            )
+            """)
+        connection.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS session_docs_fts USING fts5(
+                title, content, content='session_docs', content_rowid='rowid'
+            )
+            """)
+        cursor = connection.execute(
+            "INSERT INTO session_docs VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                "/workspace/grok-project",
+                1793527500,
+                "Repair the Grok integration",
+                "Repair the Grok integration and add regression coverage.",
+                "synthetic-hash",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO session_docs_fts(rowid, title, content) VALUES (?, ?, ?)",
+            (
+                cursor.lastrowid,
+                "Repair the Grok integration",
+                "Repair the Grok integration and add regression coverage.",
+            ),
+        )
+    return session_dir
+
+
+def seed_agy(
+    root: Path,
+    session_id: str = "0ef48ec7-d3ae-4273-b772-2754f2f36e3b",
+    active: bool = False,
+) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    index_path = root / "conversation_summaries.db"
+    with sqlite3.connect(index_path) as connection:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_summaries (
+                conversation_id TEXT PRIMARY KEY, title TEXT, preview TEXT,
+                step_count INTEGER, last_modified_time datetime, workspace_uris TEXT,
+                status TEXT, source TEXT, project_id TEXT, agent_name TEXT,
+                parent_conversation_id TEXT, nesting_depth INTEGER, battle_id TEXT,
+                winning_conversation_id TEXT, not_fully_idle numeric, killed numeric,
+                last_user_input_time datetime, last_user_input_step_index INTEGER,
+                app_data_dir TEXT, raw_summary BLOB, group_id TEXT
+            )
+            """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS conversations_fts (
+                conversation_id, chunk_index, chunk_first_step, chunk_last_step,
+                last_modified_time, step_count, last_step_created_at, archived,
+                user_step_byte_offsets, agent_step_byte_offsets, title, workspace,
+                project, user_body, agent_body
+            )
+            """)
+        connection.execute(
+            """
+            INSERT INTO conversation_summaries VALUES
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                "Build an Antigravity command",
+                "Add the command and verify its tests.",
+                12,
+                "2026-11-02 14:12:08.317098+00:00",
+                '["file:///workspace/agy-project"]',
+                "CASCADE_RUN_STATUS_RUNNING" if active else "CASCADE_RUN_STATUS_IDLE",
+                "",
+                "default-cli-project",
+                "",
+                "",
+                0,
+                "",
+                "",
+                int(active),
+                0,
+                "2026-11-02 14:11:25.135948+00:00",
+                8,
+                "antigravity-cli",
+                b"synthetic-summary",
+                "",
+            ),
+        )
+    conversation_path = root / "conversations" / f"{session_id}.db"
+    conversation_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(conversation_path) as connection:
+        connection.execute("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_payload BLOB)")
+        connection.execute("INSERT INTO steps VALUES (1, ?)", (b"synthetic-step",))
+    brain = root / "brain" / session_id / ".system_generated"
+    brain.mkdir(parents=True)
+    (brain / "note.txt").write_text("synthetic\n", encoding="utf-8")
+    if active:
+        presence = root / "presence" / f"{session_id}.lock"
+        presence.parent.mkdir(parents=True)
+        presence.write_text("", encoding="utf-8")
+    return conversation_path

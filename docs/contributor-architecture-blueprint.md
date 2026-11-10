@@ -30,3 +30,9 @@ with mTLS or a WireGuard-only path.
 - Continue: JSON files under `sessions/`; `sessions.json` cleanup on delete.
 - GitHub Copilot CLI: directories under `session-state/`; live `inuse` locks
   block deletion.
+- Grok Build: session directories under `sessions/<encoded-cwd>/<session-id>`;
+  `summary.json` supplies normalized metadata and `active_sessions.json` blocks
+  deletion of open sessions.
+- Google Antigravity CLI (AGY): one SQLite conversation database per session
+  plus a shared `conversation_summaries.db`; summary/search rows are captured in
+  restore metadata before deletion and restored with companion artifacts.

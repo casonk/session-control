@@ -17,6 +17,8 @@ class AppConfig:
     claude_root: Path
     continue_root: Path
     copilot_root: Path
+    grok_root: Path
+    agy_root: Path
     trash_dir: Path
     secret_key: str
     digest_dir: Path | None = None
@@ -53,6 +55,8 @@ class AppConfig:
             claude_root=_path_env("SESSION_CONTROL_CLAUDE_ROOT", home / ".claude"),
             continue_root=_path_env("SESSION_CONTROL_CONTINUE_ROOT", home / ".continue"),
             copilot_root=_path_env("SESSION_CONTROL_COPILOT_ROOT", home / ".copilot"),
+            grok_root=_path_env("SESSION_CONTROL_GROK_ROOT", home / ".grok"),
+            agy_root=_path_env("SESSION_CONTROL_AGY_ROOT", home / ".gemini" / "antigravity-cli"),
             trash_dir=_path_env(
                 "SESSION_CONTROL_TRASH_DIR",
                 home / ".local" / "share" / "session-control" / "trash",
@@ -111,6 +115,8 @@ class AppConfig:
             "claude": self.claude_root,
             "continue": self.continue_root,
             "copilot": self.copilot_root,
+            "grok": self.grok_root,
+            "agy": self.agy_root,
         }
         return roots[provider]
 

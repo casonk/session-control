@@ -14,6 +14,8 @@ def app_config(tmp_path: Path) -> AppConfig:
         claude_root=tmp_path / "claude",
         continue_root=tmp_path / "continue",
         copilot_root=tmp_path / "copilot",
+        grok_root=tmp_path / "grok",
+        agy_root=tmp_path / "agy",
         trash_dir=tmp_path / "trash",
         secret_key="test-secret",
     )

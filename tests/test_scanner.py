@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 from session_control.scanner import SessionScanner
-from tests.helpers import seed_claude, seed_codex, seed_continue, seed_copilot, write_json
+from tests.helpers import (
+    seed_agy,
+    seed_claude,
+    seed_codex,
+    seed_continue,
+    seed_copilot,
+    seed_grok,
+    write_json,
+)
 
 
 def test_scanner_discovers_supported_provider_sessions(app_config):
@@ -11,12 +20,14 @@ def test_scanner_discovers_supported_provider_sessions(app_config):
     seed_claude(app_config.claude_root)
     seed_continue(app_config.continue_root)
     seed_copilot(app_config.copilot_root)
+    seed_grok(app_config.grok_root)
+    seed_agy(app_config.agy_root)
 
     report = SessionScanner(app_config).scan()
 
     assert not report.errors
     by_provider = {session.provider: session for session in report.sessions}
-    assert set(by_provider) == {"codex", "claude", "continue", "copilot"}
+    assert set(by_provider) == {"codex", "claude", "continue", "copilot", "grok", "agy"}
     assert by_provider["codex"].title == "Fix statement downloader"
     assert by_provider["codex"].resume_command.endswith(
         "codex resume 019d016b-30c2-7992-970a-b6082c1a2723"
@@ -29,6 +40,12 @@ def test_scanner_discovers_supported_provider_sessions(app_config):
     )
     assert by_provider["copilot"].resume_command.endswith(
         "copilot --resume=3e6d83f8-5629-47d2-9a64-2779c509c808"
+    )
+    assert by_provider["grok"].resume_command.endswith(
+        "grok --resume 01a19190-eee0-7bc0-ba72-faf1ec22edd8"
+    )
+    assert by_provider["agy"].resume_command.endswith(
+        "agy --conversation 0ef48ec7-d3ae-4273-b772-2754f2f36e3b"
     )
 
 
@@ -264,3 +281,78 @@ def test_scanner_ignores_hidden_copilot_state_directories(app_config):
 
     assert not report.errors
     assert any(record.provider == "copilot" for record in report.sessions)
+
+
+def test_grok_summary_metadata_and_active_registry_are_supported(app_config):
+    session_dir = seed_grok(app_config.grok_root, active=True)
+
+    session = SessionScanner(app_config).scan(providers=("grok",)).sessions[0]
+
+    assert session.title == "Repair the Grok integration"
+    assert session.workspace == "/workspace/grok-project"
+    assert session.message_count == 4
+    assert session.primary_path == session_dir
+    assert session.delete_targets == (session_dir,)
+    assert session.active is True
+    assert session.metadata["model"] == "grok-code-fast-1"
+
+
+def test_grok_uses_first_user_message_when_generated_title_is_missing(app_config):
+    session_dir = seed_grok(app_config.grok_root)
+    summary_path = session_dir / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["generated_title"] = ""
+    summary["session_summary"] = ""
+    write_json(summary_path, summary)
+
+    session = SessionScanner(app_config).scan(providers=("grok",)).sessions[0]
+
+    assert session.title == "Repair the Grok integration"
+    assert session.preview == "Repair the Grok integration"
+
+
+def test_grok_unreliable_active_registry_protects_every_session(app_config):
+    seed_grok(app_config.grok_root)
+    (app_config.grok_root / "active_sessions.json").write_text("{broken", encoding="utf-8")
+
+    report = SessionScanner(app_config).scan(providers=("grok",))
+
+    assert report.sessions[0].active is True
+    assert any("active-session state is unreliable" in error.message for error in report.errors)
+
+
+def test_agy_summary_index_and_companion_artifacts_are_supported(app_config):
+    conversation = seed_agy(app_config.agy_root)
+
+    session = SessionScanner(app_config).scan(providers=("agy",)).sessions[0]
+
+    assert session.title == "Build an Antigravity command"
+    assert session.workspace == "/workspace/agy-project"
+    assert session.message_count == 12
+    assert session.primary_path == conversation
+    assert conversation in session.delete_targets
+    assert app_config.agy_root / "brain" / session.session_id in session.delete_targets
+    assert session.active is False
+    assert session.metadata["project_id"] == "default-cli-project"
+
+
+def test_agy_presence_lock_marks_the_conversation_active(app_config):
+    seed_agy(app_config.agy_root, active=True)
+
+    session = SessionScanner(app_config).scan(providers=("agy",)).sessions[0]
+
+    assert session.active is True
+
+
+def test_provider_schema_drift_does_not_hide_grok_or_agy_peer_sessions(app_config):
+    seed_grok(app_config.grok_root)
+    bad_grok = app_config.grok_root / "sessions" / "%2Fbad" / "bad-id"
+    write_json(bad_grok / "summary.json", {"schema": "future"})
+    app_config.agy_root.mkdir(parents=True)
+    (app_config.agy_root / "conversation_summaries.db").write_text("not sqlite", encoding="utf-8")
+
+    report = SessionScanner(app_config).scan()
+
+    assert any(session.provider == "grok" for session in report.sessions)
+    assert any(error.provider == "grok" and "bad-id" in error.message for error in report.errors)
+    assert any(error.provider == "agy" for error in report.errors)

@@ -331,6 +331,14 @@ select {
   background: color-mix(in srgb, var(--accent) 55%, var(--purple));
 }
 
+.provider.grok {
+  background: color-mix(in srgb, var(--purple) 65%, var(--accent));
+}
+
+.provider.agy {
+  background: color-mix(in srgb, var(--green) 60%, var(--yellow));
+}
+
 .status.active {
   background: var(--danger);
 }
