@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Redact secrets from handoff briefs. OAuth callback `code=`/`state=` values, bearer and basic auth values, `user:password@` URLs, private-key blocks, well-known token shapes (Google, GitHub, GitLab, OpenAI/Anthropic, Slack, AWS, npm, JWT) and the values of `*_SECRET`/`*_TOKEN`/`password`-style fields are replaced with `[REDACTED]` before the brief is written, ahead of truncation so a cut cannot leave half a secret. The brief notes how many values were masked. Briefs written before this change are not rewritten.
 - Offer the handoff on every row of the session list, not only on the session page: a target picker and a **Hand off** button beside Open, Copy, Review and Delete. The row's actions are now a fixed-width grid (full-width Open, a joined picker and button, Copy and Review side by side, full-width Delete) instead of a ragged column, and stay two-column on phones.
 - Match the portfolio type scale: the body takes `--font`, `--font-size` and `--mono` from the shared theme (so the top bar's font choice now applies here) and the page heading drops from a 25-35px display size to the home page's ~17px.
 - Add a cross-provider **handoff**: continue any session in a different provider (Claude Code, Codex, Grok, Continue, Copilot or Antigravity). It writes a private context brief (recent conversation for Codex and Claude Code sources, the opening message otherwise) and starts a new session in the target CLI that reads it. Use the "Continue in" control on the session page or `session-control handoff <id> --to <provider>`.

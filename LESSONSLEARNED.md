@@ -91,3 +91,12 @@ change how future sessions work in this repo.
   `OverflowError`/`OSError`/`ValueError` and degrade to the raw value or
   "unknown". Reproduce with `session-control scan --json` against real local
   data, and cover sentinel timestamps in `tests/` fixtures.
+
+- Anything copied out of a provider transcript into a new file (a handoff
+  brief, an export, a log) must pass through `session_control.redaction.redact`
+  first, and redaction must run before truncation. Transcripts contain pasted
+  OAuth callback URLs, bearer tokens and `KEY=value` lines, and a brief is read
+  and echoed by another assistant. Redaction is pattern-based, so it is a
+  safety net and not a guarantee: never rely on it for a secret with no
+  recognizable shape or label. Build fake secrets in tests from fragments so
+  secret scanners do not flag the fixtures.
