@@ -463,8 +463,7 @@ def init_usage_db(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=10.0)
     connection.execute("PRAGMA journal_mode=WAL;")
-    connection.execute(
-        """
+    connection.execute("""
         CREATE TABLE IF NOT EXISTS sessions_summary (
             profile TEXT NOT NULL,
             conversation_id TEXT NOT NULL,
@@ -478,8 +477,7 @@ def init_usage_db(path: Path) -> sqlite3.Connection:
             updated_at TEXT,
             PRIMARY KEY(profile, conversation_id)
         )
-        """
-    )
+        """)
     connection.commit()
     return connection
 
