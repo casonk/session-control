@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Read Grok sessions as a handoff source. A handoff from Grok now carries the recent conversation instead of only the opening message: streamed `user_message_chunk` and `agent_message_chunk` events in `updates.jsonl` are merged into one turn per speaker, tool work separates paragraphs, and thoughts and tool output are left out. Continue, Copilot and AGY sources still hand off the opening message only.
+
 - Redact secrets from handoff briefs. OAuth callback `code=`/`state=` values, bearer and basic auth values, `user:password@` URLs, private-key blocks, well-known token shapes (Google, GitHub, GitLab, OpenAI/Anthropic, Slack, AWS, npm, JWT) and the values of `*_SECRET`/`*_TOKEN`/`password`-style fields are replaced with `[REDACTED]` before the brief is written, ahead of truncation so a cut cannot leave half a secret. The brief notes how many values were masked. Briefs written before this change are not rewritten.
 - Offer the handoff on every row of the session list, not only on the session page: a target picker and a **Hand off** button beside Open, Copy, Review and Delete. The row's actions are now a fixed-width grid (full-width Open, a joined picker and button, Copy and Review side by side, full-width Delete) instead of a ragged column, and stay two-column on phones.
 - Match the portfolio type scale: the body takes `--font`, `--font-size` and `--mono` from the shared theme (so the top bar's font choice now applies here) and the page heading drops from a 25-35px display size to the home page's ~17px.
