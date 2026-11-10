@@ -13,6 +13,19 @@ change how future sessions work in this repo.
 
 ## Lessons
 
+- Grok accounts are separate `GROK_HOME` directories, the same way AGY accounts
+  are separate Gemini directories. The registry stays in the default
+  `~/.grok/profiles.json`. Do not point `GROK_HOME` at that file's parent when
+  resolving the registry, or a selected account will hide the list of accounts.
+- Codex, Claude Code, Continue, and Copilot accounts are separate directories
+  too: `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `CONTINUE_GLOBAL_DIR`, and
+  `COPILOT_HOME`. Keep each registry in the default home and do not locate it
+  through the CLI's own home variable. The profile launchers drop
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+  `CONTINUE_API_KEY`, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_TOKEN`
+  for the child process so a token in the parent environment cannot pin every
+  profile to one login. Plain `codex`, `claude`, `cn`, and `copilot` still
+  inherit those variables.
 - Reversible deletion needs locally stored, provider-relative restore metadata;
   a bare filename cannot safely reconstruct nested provider stores. Restore
   must accept only a configured-trash entry, reject traversal and symlink
@@ -48,6 +61,14 @@ change how future sessions work in this repo.
 - Short-lived child sessions can accumulate while consuming tokens and disk.
   Prefer existing tools or in-process delegation for one-shot checks when a
   persistent child conversation is unnecessary. When a child session is useful,
+  tag and track it so cleanup policies can expire them aggressively.
+- Antigravity CLI (AGY) sessions are isolated only when `agy` is launched with
+  `--gemini_dir <path>`. Setting `GEMINI_DIR` or `ANTIGRAVITY_GEMINI_DIR` does
+  not switch the account: `agy` keeps using `~/.gemini` and the account already
+  signed in there. Do not copy OAuth files between profile directories. When
+  scanning multi-profile environments, the scanner must strictly guard
+  against bleeding the operator's real default home profile into isolated test
+  environments by comparing resolved root paths.
   retain its result in the parent and review short subagents through the scoped
   dry-run prune before moving them to trash. Recorded event span is a review
   signal, not proof of completion or dispensability.
@@ -58,6 +79,10 @@ change how future sessions work in this repo.
 - After a chat-directed local removal, tell the user plainly to close or delete
   the hosted chat themselves. Do not describe a moved local file or an ended
   agent turn as termination of the hosted conversation.
+- Providers that split session payloads from shared SQLite summary/search
+  indexes need one reversible delete transaction: preserve validated index rows
+  (including encoded binary fields), preflight all restore metadata before
+  moving files, and treat unreadable active-session registries conservatively.
 - Provider timestamps can be sentinel values: Antigravity (`agy`) sessions may
   report Go's zero time (`0001-01-01T00:00:00Z`). It parses fine but
   `astimezone()` raises `OverflowError`, and an unguarded template filter turns

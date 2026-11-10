@@ -6,10 +6,10 @@
 
 Private web control plane for local AI assistant session files.
 
-`session-control` scans local Codex, Claude Code, Continue, and GitHub Copilot
-session stores, summarizes what each session was about, shows the command to
-resume it, and moves old sessions into a local trash directory from a small
-Flask web UI.
+`session-control` scans local Codex, Claude Code, Continue, GitHub Copilot CLI,
+Grok Build, and Google Antigravity CLI (AGY) session stores, summarizes what
+each session was about, shows the command to resume it, and moves old sessions
+into a local trash directory from a small Flask web UI.
 
 ## Prerequisites
 
@@ -20,6 +20,8 @@ Flask web UI.
   - Claude Code: `~/.claude/projects`
   - Continue: `~/.continue/sessions`
   - GitHub Copilot CLI: `~/.copilot/session-state`
+  - Grok Build: `~/.grok/sessions`
+  - Google Antigravity CLI (AGY): `~/.gemini/antigravity-cli`
 
 ## Quick Start
 
@@ -49,6 +51,8 @@ Common variables:
 | `SESSION_CONTROL_PORT` | `5420` | Flask bind port |
 | `SESSION_CONTROL_PUBLIC_ORIGIN` | unset | External origin used by a trusted proxy |
 | `SESSION_CONTROL_ALLOWED_ORIGINS` | unset | Comma-separated extra origins for CSRF checks |
+| `SESSION_CONTROL_GROK_ROOT` | `~/.grok` | Grok Build state root |
+| `SESSION_CONTROL_AGY_ROOT` | `~/.gemini/antigravity-cli` | Google Antigravity CLI state root |
 | `SESSION_CONTROL_TRASH_DIR` | `~/.local/share/session-control/trash` | Delete destination |
 | `SESSION_CONTROL_DIGEST_DIR` | `~/.local/share/session-control/digests` | Private category/repo termination records |
 | `SESSION_CONTROL_TRASH_RETENTION_DAYS` | `7` | Days to keep restorable raw files |
@@ -98,6 +102,8 @@ The scanner emits provider-specific resume commands:
   so the session reopens on the same local backend
 - Continue: `cn --fork <session-id>`
 - GitHub Copilot CLI: `copilot --resume=<session-id>`
+- Grok Build: `grok --resume <session-id>`
+- Google Antigravity CLI (AGY): `agy --conversation <session-id>`
 
 When a session records a workspace, the command is prefixed with `cd <workspace>`.
 Set `SESSION_CONTROL_CODEX_RESUME_MODEL` to force a known-good Codex model for
@@ -232,12 +238,127 @@ polling does not depend on changes to any one local transcript.
 When running under systemd, set `SESSION_CONTROL_CLAUDE_STATUS_COMMAND` to an
 absolute `claude` path if the service PATH cannot find the CLI.
 
+## Google AGY Multi-User Profiles & Usage Tracing
+
+`session-control` supports isolated multi-user environments, workspace routing,
+and local token usage tracing for the Google Antigravity CLI (`agy`) without
+modifying protected system OAuth credentials.
+
+Each profile is its own directory, `~/.gemini` for the default account and
+`~/.gemini/profiles/<name>` for the others. `agy-profile` launches `agy` with
+`--gemini_dir` pointed at that directory. `agy` does not read `GEMINI_DIR`, so
+a launch without that flag stays on the account already signed in at `~/.gemini`.
+The first launch of a new profile prints a Google sign-in URL. Pick the other
+account on that page. A browser that is already signed in will otherwise offer
+the same account again.
+
+```bash
+# View configured profiles and active token metrics
+agy-profile list
+session-control profile list
+
+# Check resolved profile for current working directory
+agy-profile current
+
+# View token consumption and session breakdown
+agy-profile usage
+agy-profile usage --json
+
+# Launch agy with automatic profile selection and usage harvesting
+agy-profile [args...]
+agy-profile run [args...]
+
+# Add or switch profiles
+agy-profile add work --email dev@example.com
+agy-profile switch work
+
+# Define directory or repository routing rules
+agy-profile route add "*/research-repos/*" academic
+agy-profile route list
+```
+
+Token events (`input_tokens`, `output_tokens`, `cache_read_tokens`) are incrementally
+harvested from conversation transcripts into a local SQLite telemetry database at
+`~/.gemini/usage_tracking.sqlite`.
+
+## Grok Multi-Account Profiles
+
+Grok accounts use the same shape. Each account is an isolated `GROK_HOME`.
+The default account remains `~/.grok`. Added accounts default to
+`~/.grok/profiles/<name>`, with their own `auth.json` and sessions. The
+registry itself stays at `~/.grok/profiles.json`.
+
+```bash
+grok-profile list
+grok-profile current
+grok-profile usage
+grok-profile usage --json
+
+grok-profile add work --email work@example.com
+grok-profile switch work
+grok-profile route add "*/research-repos/*" academic
+grok-profile route list
+
+# First launch of a new account opens Grok's normal sign-in in that home.
+grok-profile run --profile work login
+grok-profile
+grok-profile --resume <session-id>
+```
+
+`session-control grok-profile` accepts the same subcommands. Token totals are
+read from each session's `usage.json` into `~/.grok/profile_usage.sqlite`.
+Sessions from added accounts show up in the control plane, and their resume
+command goes through `grok-profile run --profile <name>`.
+
+## Codex, Claude Code, Continue, and Copilot accounts
+
+These four CLIs already keep one login per directory. `session-control` wraps
+that the same way as Grok:
+
+| Launcher | CLI variable | Default home | Sign-in |
+| --- | --- | --- | --- |
+| `codex-profile` | `CODEX_HOME` | `~/.codex` | `codex-profile run --profile NAME login` |
+| `claude-profile` | `CLAUDE_CONFIG_DIR` | `~/.claude` | `claude-profile run --profile NAME auth login` |
+| `continue-profile` | `CONTINUE_GLOBAL_DIR` | `~/.continue` | `continue-profile run --profile NAME login` |
+| `copilot-profile` | `COPILOT_HOME` | `~/.copilot` | `copilot-profile run --profile NAME login` |
+
+Added accounts default to `<home>/profiles/<name>`. The registry stays at
+`<home>/profiles.json`, and token totals go to `<home>/profile_usage.sqlite`.
+`codex --profile` is a Codex config overlay, not a second ChatGPT account.
+Use `codex-profile` when the login itself should change.
+
+```bash
+codex-profile add work --email work@example.com
+codex-profile route add "*/clients/*" work
+claude-profile list
+continue-profile usage
+copilot-profile current
+```
+
+`session-control codex-profile` and the other three names accept the same
+subcommands. A resume from an added account goes through that account's
+launcher, so the control plane opens the directory that owns the session.
+
+The launchers remove `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, `CONTINUE_API_KEY`, `COPILOT_GITHUB_TOKEN`,
+`GH_TOKEN`, and `GITHUB_TOKEN` from the child process. Those variables would
+otherwise override the login stored in the selected directory. Running
+`codex`, `claude`, `cn`, or `copilot` directly still uses whatever the shell
+already exported.
+
+Codex totals keep the latest `total_token_usage` in each session file. Claude
+Code and Copilot totals add each recorded call, including cache tokens.
+Continue totals add `usage` objects when a session file has them.
+
 ## Delete Behavior
 
 Delete actions move session files or directories into the configured trash
-directory instead of hard-deleting them immediately. Continue and Codex index
-files are updated when a session is removed. Copilot sessions with a live
-`inuse.<pid>.lock` are not deleted.
+directory instead of hard-deleting them immediately. Continue, Codex, Grok,
+and AGY indexes are updated when a session is removed. Grok's active-session
+registry, AGY presence/status metadata, and Copilot's live `inuse.<pid>.lock`
+prevent deletion of sessions that appear to be in use. AGY summary and search
+rows—including its opaque raw summary blob—are preserved in validated restore
+metadata so delete remains reversible.
 
 Each newly deleted or pruned session records local restore metadata alongside
 its trash payload. List candidates, then restore one by its exact displayed
@@ -249,10 +370,10 @@ session-control restore 20260827T120000Z/continue/<session-id>
 ```
 
 Restore only accepts an entry beneath the configured trash directory, returns
-every file to its original provider-relative path, rebuilds the Continue index
-when needed, and refuses to overwrite any existing target. Sessions moved to
-trash before this feature do not have restore metadata and remain manual
-recovery cases.
+every file to its original provider-relative path, rebuilds provider indexes
+when needed, and refuses to overwrite any existing target or provider index
+entry. Sessions moved to trash before this feature do not have restore metadata
+and remain manual recovery cases.
 
 ## Pruning
 

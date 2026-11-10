@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import shlex
 import shutil
+import sqlite3
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from session_control.codex_permissions import (
     codex_permission_args,
@@ -25,6 +28,7 @@ from session_control.handoff import (
     recent_turns,
     write_brief,
 )
+from session_control.home_profiles import owning_account_home
 from session_control.models import ScanError, SessionRecord
 from session_control.scanner import SessionScanner
 
@@ -309,6 +313,7 @@ class SessionActionService:
 
         provider_root = self.config.provider_root(candidate.provider)
         targets = _restore_targets(manifest, batch_dir, provider_root)
+        _preflight_provider_index_restore(candidate, provider_root, manifest)
         for source, destination in targets:
             if not source.exists():
                 raise SessionActionError(f"Trash payload is missing: {source.name}")
@@ -327,6 +332,7 @@ class SessionActionService:
                     candidate.session_id,
                     restored,
                 )
+            _restore_provider_index_entry(candidate, provider_root, manifest)
             manifest_path.unlink()
             _remove_empty_trash_dirs(batch_dir, self.config.trash_dir)
         except OSError as exc:
@@ -384,6 +390,10 @@ class SessionActionService:
         absorbed = sorted_group[:-1]
         kept = sorted_group[-1]
         provider = kept.provider
+        if provider in {"grok", "agy"}:
+            raise SessionActionError(
+                f"Deduplication is not supported for {provider} session storage."
+            )
         provider_root = self.config.provider_root(provider)
         batch_dir = self._trash_batch_dir(kept)
 
@@ -414,11 +424,12 @@ class SessionActionService:
                 destination = batch_dir / session.session_id[:12] / target.name
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(target), str(destination))
+            account_home = owning_account_home(provider_root, session.primary_path)
             if provider == "codex":
-                _remove_codex_index_entry(provider_root / "session_index.jsonl", session.session_id)
+                _remove_codex_index_entry(account_home / "session_index.jsonl", session.session_id)
             if provider == "continue":
                 _remove_continue_index_entry(
-                    provider_root / "sessions" / "sessions.json", session.session_id
+                    account_home / "sessions" / "sessions.json", session.session_id
                 )
             try:
                 self.digest_store.record(session, reason="merge")
@@ -503,19 +514,28 @@ class SessionActionService:
         killed_window_count = (
             _kill_tmux_windows_for_session(self.config.tmux_session, session) if kill_windows else 0
         )
-        _write_restore_manifest(session, provider_root, batch_dir, target_mappings)
+        provider_metadata = _provider_index_snapshot(session, provider_root)
+        _write_restore_manifest(
+            session,
+            provider_root,
+            batch_dir,
+            target_mappings,
+            provider_metadata=provider_metadata,
+        )
         moved = 0
         try:
             for target, destination in target_mappings:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(target), str(destination))
                 moved += 1
+            account_home = owning_account_home(provider_root, session.primary_path)
             if session.provider == "codex":
-                _remove_codex_index_entry(provider_root / "session_index.jsonl", session.session_id)
+                _remove_codex_index_entry(account_home / "session_index.jsonl", session.session_id)
             if session.provider == "continue":
                 _remove_continue_index_entry(
-                    provider_root / "sessions" / "sessions.json", session.session_id
+                    account_home / "sessions" / "sessions.json", session.session_id
                 )
+            _remove_provider_index_entry(session, provider_root, provider_metadata)
             self.digest_store.record(session, reason=reason)
         except OSError as exc:
             raise SessionActionError(f"Could not finish session removal: {exc}") from exc
@@ -649,6 +669,8 @@ def _write_restore_manifest(
     provider_root: Path,
     batch_dir: Path,
     target_mappings: list[tuple[Path, Path]],
+    *,
+    provider_metadata: dict | None = None,
 ) -> None:
     try:
         targets = [
@@ -659,12 +681,14 @@ def _write_restore_manifest(
             for source, destination in target_mappings
         ]
         payload = {
-            "version": 1,
+            "version": 2 if provider_metadata else 1,
             "provider": session.provider,
             "session_id": session.session_id,
             "moved_at": batch_dir.parts[-3],
             "targets": targets,
         }
+        if provider_metadata:
+            payload["provider_metadata"] = provider_metadata
         batch_dir.mkdir(parents=True, exist_ok=True)
         (batch_dir / ".session-control-restore.json").write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -699,7 +723,7 @@ def _restore_candidate_from_manifest(manifest_path: Path, trash_dir: Path) -> Re
     session_id = str(manifest.get("session_id") or "")
     moved_at = str(manifest.get("moved_at") or "")
     targets = manifest.get("targets")
-    if provider not in {"codex", "claude", "continue", "copilot"} or not session_id:
+    if provider not in {"codex", "claude", "continue", "copilot", "grok", "agy"} or not session_id:
         raise ValueError("missing provider or session identifier")
     if not isinstance(targets, list):
         raise ValueError("missing restore targets")
@@ -784,6 +808,311 @@ def _restore_continue_index_entry(index_path: Path, session_id: str, restored: l
         raise SessionActionError(f"Could not restore Continue session index: {exc}") from exc
 
 
+GROK_SEARCH_COLUMNS = ("session_id", "cwd", "updated_at", "title", "content", "content_hash")
+AGY_SUMMARY_COLUMNS = (
+    "conversation_id",
+    "title",
+    "preview",
+    "step_count",
+    "last_modified_time",
+    "workspace_uris",
+    "status",
+    "source",
+    "project_id",
+    "agent_name",
+    "parent_conversation_id",
+    "nesting_depth",
+    "battle_id",
+    "winning_conversation_id",
+    "not_fully_idle",
+    "killed",
+    "last_user_input_time",
+    "last_user_input_step_index",
+    "app_data_dir",
+    "raw_summary",
+    "group_id",
+)
+AGY_FTS_COLUMNS = (
+    "conversation_id",
+    "chunk_index",
+    "chunk_first_step",
+    "chunk_last_step",
+    "last_modified_time",
+    "step_count",
+    "last_step_created_at",
+    "archived",
+    "user_step_byte_offsets",
+    "agent_step_byte_offsets",
+    "title",
+    "workspace",
+    "project",
+    "user_body",
+    "agent_body",
+)
+
+
+def _provider_index_snapshot(session: SessionRecord, provider_root: Path) -> dict[str, Any]:
+    if session.provider == "grok":
+        path = provider_root / "sessions" / "session_search.sqlite"
+        row = _sqlite_select_one(path, "session_docs", GROK_SEARCH_COLUMNS, session.session_id)
+        return {"grok_search_doc": _encode_sqlite_row(row)} if row else {}
+    if session.provider == "agy":
+        path = provider_root / "conversation_summaries.db"
+        row = _sqlite_select_one(
+            path, "conversation_summaries", AGY_SUMMARY_COLUMNS, session.session_id
+        )
+        if row is None:
+            raise SessionActionError("Google AGY conversation summary was not found.")
+        fts_rows = _sqlite_select_all(
+            path, "conversations_fts", AGY_FTS_COLUMNS, "conversation_id", session.session_id
+        )
+        return {
+            "agy_summary": _encode_sqlite_row(row),
+            "agy_fts_rows": [_encode_sqlite_row(item) for item in fts_rows],
+        }
+    return {}
+
+
+def _preflight_provider_index_restore(
+    candidate: RestoreCandidate, provider_root: Path, manifest: object
+) -> None:
+    if candidate.provider not in {"grok", "agy"}:
+        return
+    metadata = _provider_metadata(manifest)
+    if candidate.provider == "grok" and metadata.get("grok_search_doc"):
+        _decode_sqlite_row(metadata["grok_search_doc"], GROK_SEARCH_COLUMNS)
+    if candidate.provider == "agy":
+        if "agy_summary" not in metadata:
+            raise SessionActionError("Trash entry has no Google AGY index metadata.")
+        _decode_sqlite_row(metadata["agy_summary"], AGY_SUMMARY_COLUMNS)
+        rows_value = metadata.get("agy_fts_rows", [])
+        if not isinstance(rows_value, list):
+            raise SessionActionError("Trash entry has invalid Google AGY search metadata.")
+        for row in rows_value:
+            _decode_sqlite_row(row, AGY_FTS_COLUMNS)
+    path = (
+        provider_root / "sessions" / "session_search.sqlite"
+        if candidate.provider == "grok"
+        else provider_root / "conversation_summaries.db"
+    )
+    needs_index = candidate.provider == "agy" or bool(metadata.get("grok_search_doc"))
+    if needs_index and not path.exists():
+        raise SessionActionError(f"Provider index {path.name} was not found.")
+    table = "session_docs" if candidate.provider == "grok" else "conversation_summaries"
+    key = "session_id" if candidate.provider == "grok" else "conversation_id"
+    expected_columns = GROK_SEARCH_COLUMNS if candidate.provider == "grok" else AGY_SUMMARY_COLUMNS
+    if needs_index and not set(expected_columns).issubset(_sqlite_table_columns(path, table)):
+        raise SessionActionError(f"Provider index {path.name} has an unsupported schema.")
+    if (
+        candidate.provider == "agy"
+        and metadata.get("agy_fts_rows")
+        and not set(AGY_FTS_COLUMNS).issubset(_sqlite_table_columns(path, "conversations_fts"))
+    ):
+        raise SessionActionError(f"Provider index {path.name} has an unsupported search schema.")
+    if needs_index and _sqlite_has_key(path, table, key, candidate.session_id):
+        raise SessionActionError("Refusing to overwrite an existing provider index entry.")
+
+
+def _remove_provider_index_entry(
+    session: SessionRecord, provider_root: Path, metadata: dict[str, Any]
+) -> None:
+    if session.provider == "grok" and metadata.get("grok_search_doc"):
+        path = provider_root / "sessions" / "session_search.sqlite"
+        _sqlite_delete_index_rows(
+            path,
+            (
+                (
+                    "session_docs_fts",
+                    "rowid IN (SELECT rowid FROM session_docs WHERE session_id = ?)",
+                    session.session_id,
+                ),
+                ("session_docs", "session_id = ?", session.session_id),
+            ),
+        )
+    if session.provider == "agy":
+        path = provider_root / "conversation_summaries.db"
+        _sqlite_delete_index_rows(
+            path,
+            (
+                ("conversations_fts", "conversation_id = ?", session.session_id),
+                ("conversation_summaries", "conversation_id = ?", session.session_id),
+            ),
+        )
+
+
+def _restore_provider_index_entry(
+    candidate: RestoreCandidate, provider_root: Path, manifest: object
+) -> None:
+    metadata = _provider_metadata(manifest)
+    if candidate.provider == "grok" and metadata.get("grok_search_doc"):
+        row = _decode_sqlite_row(metadata["grok_search_doc"], GROK_SEARCH_COLUMNS)
+        path = provider_root / "sessions" / "session_search.sqlite"
+        _sqlite_insert_rows(path, "session_docs", GROK_SEARCH_COLUMNS, [row])
+        with _sqlite_write_connection(path) as connection:
+            indexed = connection.execute(
+                "SELECT rowid, title, content FROM session_docs WHERE session_id = ?",
+                (candidate.session_id,),
+            ).fetchone()
+            if indexed:
+                connection.execute(
+                    "INSERT INTO session_docs_fts(rowid, title, content) VALUES (?, ?, ?)",
+                    indexed,
+                )
+        return
+    if candidate.provider == "agy":
+        summary = _decode_sqlite_row(metadata.get("agy_summary"), AGY_SUMMARY_COLUMNS)
+        rows_value = metadata.get("agy_fts_rows", [])
+        if not isinstance(rows_value, list):
+            raise SessionActionError("Trash entry has invalid Google AGY search metadata.")
+        fts_rows = [_decode_sqlite_row(item, AGY_FTS_COLUMNS) for item in rows_value]
+        path = provider_root / "conversation_summaries.db"
+        _sqlite_insert_rows(path, "conversation_summaries", AGY_SUMMARY_COLUMNS, [summary])
+        if fts_rows:
+            _sqlite_insert_rows(path, "conversations_fts", AGY_FTS_COLUMNS, fts_rows)
+
+
+def _provider_metadata(manifest: object) -> dict[str, Any]:
+    if not isinstance(manifest, dict):
+        raise SessionActionError("Trash entry has invalid provider metadata.")
+    value = manifest.get("provider_metadata", {})
+    if not isinstance(value, dict):
+        raise SessionActionError("Trash entry has invalid provider metadata.")
+    return value
+
+
+def _sqlite_select_one(
+    path: Path, table: str, columns: tuple[str, ...], session_id: str
+) -> dict[str, Any] | None:
+    rows = _sqlite_select_all(path, table, columns, columns[0], session_id)
+    return rows[0] if rows else None
+
+
+def _sqlite_select_all(
+    path: Path, table: str, columns: tuple[str, ...], key: str, value: str
+) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    names = ", ".join(f'"{name}"' for name in columns)
+    try:
+        rows = _sqlite_fetchall(
+            path,
+            f'SELECT {names} FROM "{table}" WHERE "{key}" = ?',
+            (value,),
+        )
+    except sqlite3.Error as exc:
+        raise SessionActionError(f"Could not read {path.name} provider index: {exc}") from exc
+    return [dict(zip(columns, row, strict=True)) for row in rows]
+
+
+def _sqlite_has_key(path: Path, table: str, key: str, value: str) -> bool:
+    try:
+        return bool(
+            _sqlite_fetchall(
+                path,
+                f'SELECT 1 FROM "{table}" WHERE "{key}" = ? LIMIT 1',
+                (value,),
+            )
+        )
+    except sqlite3.Error as exc:
+        raise SessionActionError(f"Could not inspect {path.name} provider index: {exc}") from exc
+
+
+def _sqlite_table_columns(path: Path, table: str) -> set[str]:
+    try:
+        return {str(row[1]) for row in _sqlite_fetchall(path, f'PRAGMA table_info("{table}")')}
+    except sqlite3.Error as exc:
+        raise SessionActionError(f"Could not inspect {path.name} provider index: {exc}") from exc
+
+
+def _sqlite_fetchall(
+    path: Path, statement: str, parameters: tuple[Any, ...] = ()
+) -> list[tuple[Any, ...]]:
+    uri = path.resolve().as_uri()
+    last_error: sqlite3.OperationalError | None = None
+    for suffix in ("?mode=ro", "?mode=ro&immutable=1"):
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = sqlite3.connect(f"{uri}{suffix}", uri=True, timeout=1)
+            return connection.execute(statement, parameters).fetchall()
+        except sqlite3.OperationalError as exc:
+            last_error = exc
+        finally:
+            if connection is not None:
+                connection.close()
+    assert last_error is not None
+    raise last_error
+
+
+def _sqlite_delete_index_rows(path: Path, operations: tuple[tuple[str, str, str], ...]) -> None:
+    try:
+        with _sqlite_write_connection(path) as connection:
+            for table, clause, value in operations:
+                connection.execute(f'DELETE FROM "{table}" WHERE {clause}', (value,))
+    except sqlite3.Error as exc:
+        raise SessionActionError(f"Could not update {path.name} provider index: {exc}") from exc
+
+
+def _sqlite_insert_rows(
+    path: Path, table: str, columns: tuple[str, ...], rows: list[dict[str, Any]]
+) -> None:
+    if not rows:
+        return
+    names = ", ".join(f'"{name}"' for name in columns)
+    placeholders = ", ".join("?" for _ in columns)
+    try:
+        with _sqlite_write_connection(path) as connection:
+            connection.executemany(
+                f'INSERT INTO "{table}" ({names}) VALUES ({placeholders})',
+                [[row[name] for name in columns] for row in rows],
+            )
+    except sqlite3.Error as exc:
+        raise SessionActionError(f"Could not restore {path.name} provider index: {exc}") from exc
+
+
+@contextlib.contextmanager
+def _sqlite_write_connection(path: Path):
+    if not path.exists():
+        raise SessionActionError(f"Provider index {path.name} was not found.")
+    connection = sqlite3.connect(path)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
+def _encode_sqlite_row(row: dict[str, Any]) -> dict[str, Any]:
+    encoded: dict[str, Any] = {}
+    for key, value in row.items():
+        if isinstance(value, bytes):
+            encoded[key] = {"base64": base64.b64encode(value).decode("ascii")}
+        elif value is None or isinstance(value, (str, int, float)):
+            encoded[key] = value
+        else:
+            raise SessionActionError("Provider index contains unsupported metadata.")
+    return encoded
+
+
+def _decode_sqlite_row(value: object, columns: tuple[str, ...]) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != set(columns):
+        raise SessionActionError("Trash entry has invalid provider index metadata.")
+    decoded: dict[str, Any] = {}
+    for key in columns:
+        item = value[key]
+        if isinstance(item, dict) and set(item) == {"base64"}:
+            try:
+                decoded[key] = base64.b64decode(str(item["base64"]), validate=True)
+            except (ValueError, TypeError) as exc:
+                raise SessionActionError(
+                    "Trash entry has invalid encoded provider metadata."
+                ) from exc
+        elif item is None or isinstance(item, (str, int, float)):
+            decoded[key] = item
+        else:
+            raise SessionActionError("Trash entry has invalid provider index metadata.")
+    return decoded
+
+
 def _launch_command(session: SessionRecord, *, codex_permission_preset: str | None) -> str:
     if session.provider != "codex":
         return session.resume_command
@@ -798,6 +1127,9 @@ def _launch_command(session: SessionRecord, *, codex_permission_preset: str | No
         )
     )
     args.append(session.session_id)
+    profile = str(session.metadata.get("profile") or "default")
+    if profile != "default":
+        args = ["codex-profile", "run", "--profile", profile, *args[1:]]
     return _command(session.workspace, args)
 
 

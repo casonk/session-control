@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import sqlite3
 import threading
 import time
 from collections.abc import Callable
@@ -21,11 +22,12 @@ from session_control.codex_permissions import (
     normalize_codex_permission_preset,
 )
 from session_control.config import AppConfig
+from session_control.home_profiles import profile_homes, resume_args
 from session_control.models import ScanError, ScanReport, SessionRecord
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
-PROVIDERS = ("codex", "claude", "continue", "copilot")
+PROVIDERS = ("codex", "claude", "continue", "copilot", "grok", "agy")
 CLAUDE_TOKEN_FIELDS = (
     "input_tokens",
     "cache_creation_input_tokens",
@@ -68,6 +70,8 @@ class SessionScanner:
             "claude": self._scan_claude,
             "continue": self._scan_continue,
             "copilot": self._scan_copilot,
+            "grok": self._scan_grok,
+            "agy": self._scan_agy,
         }
         for provider in selected:
             if provider not in scanners:
@@ -85,133 +89,269 @@ class SessionScanner:
         return ScanReport(tuple(sessions), tuple(errors))
 
     def _scan_codex(self) -> ScanReport:
-        root = self.config.codex_root
-        index = _read_codex_index(root / "session_index.jsonl")
         records: list[SessionRecord] = []
         errors: list[ScanError] = []
-        for base in (root / "sessions", root / "archived_sessions"):
-            if not base.exists():
+        for root, profile_name in profile_homes(self.config.codex_root, "codex"):
+            index = _read_codex_index(root / "session_index.jsonl")
+            for base in (root / "sessions", root / "archived_sessions"):
+                if not base.exists():
+                    continue
+                for path in base.rglob("*.jsonl"):
+                    issue = _probe_jsonl(
+                        path,
+                        description="Codex session",
+                        supported=lambda item: bool(item.get("type")),
+                        expectation="a typed event record",
+                    )
+                    if issue:
+                        errors.append(ScanError("codex", issue))
+                        continue
+                    record = _codex_record(
+                        path,
+                        index,
+                        self.config.max_preview_chars,
+                        self.config.codex_resume_model,
+                        self.config.codex_permission_preset,
+                        profile_name=profile_name,
+                    )
+                    if record:
+                        records.append(record)
+        return ScanReport(tuple(records), tuple(errors))
+
+    def _scan_claude(self) -> ScanReport:
+        records: list[SessionRecord] = []
+        errors: list[ScanError] = []
+        local_sessions = _read_crew_chief_registry(self.config.crew_chief_registry)
+        for home, profile_name in profile_homes(self.config.claude_root, "claude"):
+            root = home / "projects"
+            if not root.exists():
                 continue
-            for path in base.rglob("*.jsonl"):
+            for path in root.rglob("*.jsonl"):
                 issue = _probe_jsonl(
                     path,
-                    description="Codex session",
-                    supported=lambda item: bool(item.get("type")),
-                    expectation="a typed event record",
+                    description="Claude Code session",
+                    supported=lambda item: bool(item.get("sessionId")),
+                    expectation="a record with sessionId",
                 )
                 if issue:
-                    errors.append(ScanError("codex", issue))
+                    errors.append(ScanError("claude", issue))
                     continue
-                record = _codex_record(
+                record = _claude_record(
+                    path, self.config.max_preview_chars, profile_name=profile_name
+                )
+                if record:
+                    local = local_sessions.get(record.session_id)
+                    if local:
+                        record = _with_local_backend(record, local)
+                    records.append(record)
+        return ScanReport(tuple(records), tuple(errors))
+
+    def _scan_continue(self) -> ScanReport:
+        records: list[SessionRecord] = []
+        errors: list[ScanError] = []
+        for home, profile_name in profile_homes(self.config.continue_root, "continue"):
+            root = home / "sessions"
+            if not root.exists():
+                continue
+            summaries = _read_json(root / "sessions.json")
+            summary_by_id = {}
+            index_path = root / "sessions.json"
+            if index_path.exists() and not _is_continue_index(summaries):
+                errors.append(
+                    ScanError(
+                        "continue",
+                        "Unsupported Continue session index schema in sessions.json; "
+                        "expected a list of session summaries with sessionId.",
+                    )
+                )
+            if isinstance(summaries, list):
+                summary_by_id = {
+                    str(item.get("sessionId")): item for item in summaries if isinstance(item, dict)
+                }
+            for path in root.glob("*.json"):
+                if path.name == "sessions.json":
+                    continue
+                data = _read_json(path)
+                if not _is_continue_session(data):
+                    errors.append(
+                        ScanError(
+                            "continue",
+                            f"Unsupported Continue session schema in {path.name}; "
+                            "expected an object with sessionId.",
+                        )
+                    )
+                    continue
+                record = _continue_record(
                     path,
-                    index,
+                    summary_by_id,
                     self.config.max_preview_chars,
-                    self.config.codex_resume_model,
-                    self.config.codex_permission_preset,
+                    profile_name=profile_name,
                 )
                 if record:
                     records.append(record)
         return ScanReport(tuple(records), tuple(errors))
 
-    def _scan_claude(self) -> ScanReport:
-        root = self.config.claude_root / "projects"
-        if not root.exists():
-            return ScanReport(())
+    def _scan_copilot(self) -> ScanReport:
         records: list[SessionRecord] = []
         errors: list[ScanError] = []
-        local_sessions = _read_crew_chief_registry(self.config.crew_chief_registry)
-        for path in root.rglob("*.jsonl"):
-            issue = _probe_jsonl(
-                path,
-                description="Claude Code session",
-                supported=lambda item: bool(item.get("sessionId")),
-                expectation="a record with sessionId",
-            )
-            if issue:
-                errors.append(ScanError("claude", issue))
+        for home, profile_name in profile_homes(self.config.copilot_root, "copilot"):
+            root = home / "session-state"
+            if not root.exists():
                 continue
-            record = _claude_record(path, self.config.max_preview_chars)
-            if record:
-                local = local_sessions.get(record.session_id)
-                if local:
-                    record = _with_local_backend(record, local)
-                records.append(record)
+            for session_dir in root.iterdir():
+                # Copilot keeps its own bookkeeping (.session-operation-locks) beside sessions.
+                if not session_dir.is_dir() or session_dir.name.startswith("."):
+                    continue
+                workspace_file = session_dir / "workspace.yaml"
+                workspace_data = _read_simple_yaml(workspace_file)
+                if not workspace_file.exists() or not _is_copilot_workspace(workspace_data):
+                    errors.append(
+                        ScanError(
+                            "copilot",
+                            f"Unsupported Copilot session schema in {session_dir.name}; "
+                            "expected workspace.yaml with id or cwd.",
+                        )
+                    )
+                    continue
+                events = session_dir / "events.jsonl"
+                if events.exists():
+                    issue = _probe_jsonl(
+                        events,
+                        description="Copilot event log",
+                        supported=lambda item: bool(item.get("type")),
+                        expectation="a typed event record",
+                    )
+                    if issue:
+                        errors.append(ScanError("copilot", issue))
+                        continue
+                record = _copilot_record(
+                    session_dir, self.config.max_preview_chars, profile_name=profile_name
+                )
+                if record:
+                    records.append(record)
         return ScanReport(tuple(records), tuple(errors))
 
-    def _scan_continue(self) -> ScanReport:
-        root = self.config.continue_root / "sessions"
-        if not root.exists():
-            return ScanReport(())
-        summaries = _read_json(root / "sessions.json")
-        summary_by_id = {}
+    def _scan_grok(self) -> ScanReport:
+        homes = _grok_profile_homes(self.config.grok_root)
+        records: list[SessionRecord] = []
         errors: list[ScanError] = []
-        index_path = root / "sessions.json"
-        if index_path.exists() and not _is_continue_index(summaries):
+        for root, profile_name in homes:
+            home_records, home_errors = self._scan_one_grok_home(root, profile_name)
+            records.extend(home_records)
+            errors.extend(home_errors)
+        return ScanReport(tuple(records), tuple(errors))
+
+    def _scan_one_grok_home(
+        self, root: Path, profile_name: str
+    ) -> tuple[list[SessionRecord], list[ScanError]]:
+        sessions_root = root / "sessions"
+        if not sessions_root.exists():
+            return [], []
+        active_ids, active_registry_reliable = _grok_active_session_ids(
+            root / "active_sessions.json"
+        )
+        records: list[SessionRecord] = []
+        errors: list[ScanError] = []
+        if not active_registry_reliable or (root / "active_sessions.json.corrupt").exists():
+            active_registry_reliable = False
             errors.append(
                 ScanError(
-                    "continue",
-                    "Unsupported Continue session index schema in sessions.json; "
-                    "expected a list of session summaries with sessionId.",
+                    "grok",
+                    "Grok active-session state is unreliable in active_sessions.json; "
+                    "sessions are protected from deletion until it is repaired.",
                 )
             )
-        if isinstance(summaries, list):
-            summary_by_id = {
-                str(item.get("sessionId")): item for item in summaries if isinstance(item, dict)
-            }
-        records: list[SessionRecord] = []
-        for path in root.glob("*.json"):
-            if path.name == "sessions.json":
-                continue
-            data = _read_json(path)
-            if not _is_continue_session(data):
+        for summary_path in sessions_root.glob("*/*/summary.json"):
+            data = _read_json(summary_path)
+            if not _is_grok_summary(data):
                 errors.append(
                     ScanError(
-                        "continue",
-                        f"Unsupported Continue session schema in {path.name}; "
-                        "expected an object with sessionId.",
+                        "grok",
+                        f"Unsupported Grok session schema in {summary_path.parent.name}; "
+                        "expected summary.json with info.id.",
                     )
                 )
                 continue
-            record = _continue_record(path, summary_by_id, self.config.max_preview_chars)
+            record = _grok_record(
+                summary_path.parent,
+                data,
+                active_ids,
+                active_registry_reliable,
+                self.config.max_preview_chars,
+                profile_name=profile_name,
+            )
             if record:
                 records.append(record)
-        return ScanReport(tuple(records), tuple(errors))
+        return records, errors
 
-    def _scan_copilot(self) -> ScanReport:
-        root = self.config.copilot_root / "session-state"
-        if not root.exists():
-            return ScanReport(())
+    def _scan_agy(self) -> ScanReport:
+        from session_control.profiles import load_profiles
+
+        targets: list[tuple[Path, str, Path | None]] = [(self.config.agy_root, "default", None)]
+        profile_json = self.config.agy_root.parent / "profiles.json"
+        is_default_home = (
+            self.config.agy_root.resolve()
+            == (Path.home() / ".gemini" / "antigravity-cli").resolve()
+        )
+
+        if profile_json.is_file() or is_default_home:
+            try:
+                registry = load_profiles(profile_json if profile_json.is_file() else None)
+                for prof_name, entry in registry.profiles.items():
+                    p_root = entry.get_agy_root().resolve()
+                    if p_root == self.config.agy_root.resolve():
+                        continue
+                    if (
+                        not is_default_home
+                        and p_root == (Path.home() / ".gemini" / "antigravity-cli").resolve()
+                    ):
+                        continue
+                    if (p_root / "conversation_summaries.db").exists():
+                        targets.append((p_root, prof_name, entry.get_gemini_path()))
+            except Exception:
+                pass
+
         records: list[SessionRecord] = []
         errors: list[ScanError] = []
-        for session_dir in root.iterdir():
-            # Copilot keeps its own bookkeeping (.session-operation-locks) beside sessions.
-            if not session_dir.is_dir() or session_dir.name.startswith("."):
+
+        for root, prof_name, gemini_path in targets:
+            index_path = root / "conversation_summaries.db"
+            if not index_path.exists():
                 continue
-            workspace_file = session_dir / "workspace.yaml"
-            workspace_data = _read_simple_yaml(workspace_file)
-            if not workspace_file.exists() or not _is_copilot_workspace(workspace_data):
+            try:
+                rows = _read_agy_summaries(index_path)
+            except (OSError, sqlite3.Error, ValueError) as exc:
                 errors.append(
                     ScanError(
-                        "copilot",
-                        f"Unsupported Copilot session schema in {session_dir.name}; "
-                        "expected workspace.yaml with id or cwd.",
+                        "agy",
+                        "Unsupported Google AGY session index schema in "
+                        f"conversation_summaries.db: {exc}",
                     )
                 )
                 continue
-            events = session_dir / "events.jsonl"
-            if events.exists():
-                issue = _probe_jsonl(
-                    events,
-                    description="Copilot event log",
-                    supported=lambda item: bool(item.get("type")),
-                    expectation="a typed event record",
-                )
-                if issue:
-                    errors.append(ScanError("copilot", issue))
+
+            for data in rows:
+                session_id = str(data.get("conversation_id") or "")
+                conversation_path = root / "conversations" / f"{session_id}.db"
+                if not session_id or not conversation_path.is_file():
+                    errors.append(
+                        ScanError(
+                            "agy",
+                            f"Unsupported Google AGY session schema in {session_id or 'index row'}; "
+                            "expected a matching conversation database.",
+                        )
+                    )
                     continue
-            record = _copilot_record(session_dir, self.config.max_preview_chars)
-            if record:
-                records.append(record)
+                records.append(
+                    _agy_record(
+                        root,
+                        conversation_path,
+                        data,
+                        self.config.max_preview_chars,
+                        profile_name=prof_name,
+                        gemini_dir=gemini_path,
+                    )
+                )
         return ScanReport(tuple(records), tuple(errors))
 
 
@@ -236,6 +376,7 @@ def _codex_record(
     max_preview_chars: int,
     codex_resume_model: str | None,
     codex_permission_preset: str,
+    profile_name: str = "default",
 ) -> SessionRecord | None:
     metadata: dict[str, Any] = {}
     user_texts: list[str] = []
@@ -309,6 +450,7 @@ def _codex_record(
         metadata["last_event_at"] = latest_timestamp
     normalized_permission_preset = normalize_codex_permission_preset(codex_permission_preset)
     metadata["resume_permission_preset"] = normalized_permission_preset
+    metadata["profile"] = profile_name
     return SessionRecord(
         provider="codex",
         session_id=session_id,
@@ -323,17 +465,23 @@ def _codex_record(
         preview=_truncate(_clean_text(first_user), max_preview_chars),
         resume_command=_command(
             workspace,
-            _codex_resume_args(
-                session_id,
-                resume_model,
-                codex_permission_args(normalized_permission_preset, metadata),
+            resume_args(
+                "codex",
+                profile_name,
+                _codex_resume_args(
+                    session_id,
+                    resume_model,
+                    codex_permission_args(normalized_permission_preset, metadata),
+                ),
             ),
         ),
         metadata=metadata,
     )
 
 
-def _claude_record(path: Path, max_preview_chars: int) -> SessionRecord | None:
+def _claude_record(
+    path: Path, max_preview_chars: int, profile_name: str = "default"
+) -> SessionRecord | None:
     session_id = ""
     workspace = ""
     created_at = ""
@@ -394,7 +542,11 @@ def _claude_record(path: Path, max_preview_chars: int) -> SessionRecord | None:
     first_user = _best_user_text(user_texts)
     title = _title_from_text(first_user) or session_id
     workspace = workspace or _workspace_from_claude_project(path)
-    metadata: dict[str, Any] = {"permission_mode": permission_mode, "is_subagent": is_subagent}
+    metadata: dict[str, Any] = {
+        "permission_mode": permission_mode,
+        "is_subagent": is_subagent,
+        "profile": profile_name,
+    }
     if latest_timestamp:
         metadata["last_event_at"] = latest_timestamp
     if model:
@@ -425,7 +577,10 @@ def _claude_record(path: Path, max_preview_chars: int) -> SessionRecord | None:
         size_bytes=_path_size(path),
         message_count=message_count,
         preview=_truncate(_clean_text(first_user), max_preview_chars),
-        resume_command=_command(workspace, ["claude", "--resume", session_id]),
+        resume_command=_command(
+            workspace,
+            resume_args("claude", profile_name, ["claude", "--resume", session_id]),
+        ),
         metadata=metadata,
     )
 
@@ -434,6 +589,7 @@ def _continue_record(
     path: Path,
     summary_by_id: dict[str, dict[str, Any]],
     max_preview_chars: int,
+    profile_name: str = "default",
 ) -> SessionRecord | None:
     data = _read_json(path)
     if not isinstance(data, dict):
@@ -478,12 +634,21 @@ def _continue_record(
         size_bytes=_path_size(path),
         message_count=message_count,
         preview=_truncate(_clean_text(first_user), max_preview_chars),
-        resume_command=_command(workspace, ["cn", "--fork", session_id]),
-        metadata={"mode": data.get("mode") or "", "model": data.get("chatModelTitle") or ""},
+        resume_command=_command(
+            workspace,
+            resume_args("continue", profile_name, ["cn", "--fork", session_id]),
+        ),
+        metadata={
+            "mode": data.get("mode") or "",
+            "model": data.get("chatModelTitle") or "",
+            "profile": profile_name,
+        },
     )
 
 
-def _copilot_record(session_dir: Path, max_preview_chars: int) -> SessionRecord | None:
+def _copilot_record(
+    session_dir: Path, max_preview_chars: int, profile_name: str = "default"
+) -> SessionRecord | None:
     workspace_file = session_dir / "workspace.yaml"
     if not workspace_file.exists():
         return None
@@ -536,10 +701,261 @@ def _copilot_record(session_dir: Path, max_preview_chars: int) -> SessionRecord 
         size_bytes=_path_size(session_dir),
         message_count=message_count,
         preview=_truncate(_clean_text(preview or plan_title), max_preview_chars),
-        resume_command=_command(workspace, ["copilot", f"--resume={session_id}"]),
+        resume_command=_command(
+            workspace,
+            resume_args("copilot", profile_name, ["copilot", f"--resume={session_id}"]),
+        ),
         active=active,
-        metadata={"summary_count": workspace_data.get("summary_count") or ""},
+        metadata={
+            "summary_count": workspace_data.get("summary_count") or "",
+            "profile": profile_name,
+        },
     )
+
+
+def _grok_profile_homes(root: Path) -> list[tuple[Path, str]]:
+    """Default Grok home plus any extra accounts recorded beside it."""
+    homes = [(root, "default")]
+    registry_path = root / "profiles.json"
+    if not registry_path.is_file():
+        return homes
+    try:
+        from session_control.grok_profiles import load_profiles
+
+        registry = load_profiles(registry_path, create=False)
+    except (OSError, ValueError):
+        return homes
+    seen = {root.resolve()}
+    for name, profile in registry.profiles.items():
+        if name == "default" or not profile.enabled:
+            continue
+        try:
+            config = Path(registry.config_path) if registry.config_path else registry_path
+            home = profile.home(config).resolve()
+        except OSError:
+            continue
+        if home in seen:
+            continue
+        seen.add(home)
+        homes.append((home, name))
+    return homes
+
+
+def _grok_record(
+    session_dir: Path,
+    data: dict[str, Any],
+    active_ids: set[str],
+    active_registry_reliable: bool,
+    max_preview_chars: int,
+    profile_name: str = "default",
+) -> SessionRecord | None:
+    info = data.get("info")
+    if not isinstance(info, dict):
+        return None
+    session_id = str(info.get("id") or session_dir.name)
+    if not session_id:
+        return None
+    workspace = str(info.get("cwd") or "")
+    summary = _clean_text(str(data.get("session_summary") or ""))
+    first_user = _grok_first_user_text(session_dir)
+    title = (
+        _clean_text(str(data.get("generated_title") or ""))
+        or _title_from_text(summary)
+        or _title_from_text(first_user)
+        or session_id
+    )
+    preview = summary or _clean_text(str(data.get("last_turn_summary") or "")) or first_user
+    metadata = {
+        "model": str(data.get("current_model_id") or ""),
+        "agent_name": str(data.get("agent_name") or ""),
+        "reasoning_effort": str(data.get("reasoning_effort") or ""),
+        "sandbox_profile": str(data.get("sandbox_profile") or ""),
+        "profile": profile_name,
+    }
+    if profile_name != "default":
+        resume = ["grok-profile", "run", "--profile", profile_name, "--resume", session_id]
+    else:
+        resume = ["grok", "--resume", session_id]
+    return SessionRecord(
+        provider="grok",
+        session_id=session_id,
+        title=title,
+        workspace=workspace,
+        created_at=_normalize_datetime(str(data.get("created_at") or ""))
+        or _mtime_iso(session_dir),
+        updated_at=_normalize_datetime(
+            str(data.get("last_active_at") or data.get("updated_at") or "")
+        )
+        or _mtime_iso(session_dir),
+        primary_path=session_dir,
+        delete_targets=(session_dir,),
+        size_bytes=_path_size(session_dir),
+        message_count=_int_or_none(data.get("num_chat_messages")) or 0,
+        preview=_truncate(preview, max_preview_chars),
+        resume_command=_command(workspace, resume),
+        active=not active_registry_reliable or session_id in active_ids,
+        metadata=metadata,
+    )
+
+
+def _agy_record(
+    root: Path,
+    conversation_path: Path,
+    data: dict[str, Any],
+    max_preview_chars: int,
+    profile_name: str = "default",
+    gemini_dir: Path | None = None,
+) -> SessionRecord:
+    session_id = str(data["conversation_id"])
+    workspace = _agy_workspace(str(data.get("workspace_uris") or ""))
+    updated_at = _normalize_datetime(str(data.get("last_modified_time") or ""))
+    created_at = _normalize_datetime(str(data.get("last_user_input_time") or "")) or updated_at
+    targets = [conversation_path]
+    for candidate in (
+        conversation_path.with_name(f"{conversation_path.name}-wal"),
+        conversation_path.with_name(f"{conversation_path.name}-shm"),
+        root / "brain" / session_id,
+        root / "annotations" / f"{session_id}.pbtxt",
+    ):
+        if candidate.exists():
+            targets.append(candidate)
+    status = str(data.get("status") or "")
+    killed = bool(data.get("killed"))
+    active = (root / "presence" / f"{session_id}.lock").exists() or (
+        bool(data.get("not_fully_idle")) and not killed
+    )
+    metadata = {
+        "status": status,
+        "source": str(data.get("source") or ""),
+        "project_id": str(data.get("project_id") or ""),
+        "agent_name": str(data.get("agent_name") or ""),
+        "is_subagent": bool(data.get("parent_conversation_id")),
+        "profile": profile_name,
+    }
+    if gemini_dir and profile_name != "default":
+        resume_cmd = _command(
+            workspace,
+            ["agy-profile", "run", "--profile", profile_name, "--conversation", session_id],
+        )
+    else:
+        resume_cmd = _command(workspace, ["agy", "--conversation", session_id])
+
+    return SessionRecord(
+        provider="agy",
+        session_id=session_id,
+        title=_clean_text(str(data.get("title") or "")) or session_id,
+        workspace=workspace,
+        created_at=created_at or _mtime_iso(conversation_path),
+        updated_at=updated_at or _mtime_iso(conversation_path),
+        primary_path=conversation_path,
+        delete_targets=tuple(targets),
+        size_bytes=sum(_path_size(path) for path in targets),
+        message_count=_int_or_none(data.get("step_count")) or 0,
+        preview=_truncate(_clean_text(str(data.get("preview") or "")), max_preview_chars),
+        resume_command=resume_cmd,
+        active=active,
+        metadata=metadata,
+    )
+
+
+def _grok_first_user_text(session_dir: Path) -> str:
+    for item in _iter_jsonl(session_dir / "updates.jsonl"):
+        params = item.get("params")
+        if not isinstance(params, dict):
+            continue
+        update = params.get("update")
+        if not isinstance(update, dict) or update.get("sessionUpdate") != "user_message_chunk":
+            continue
+        text = _extract_text(update.get("content"))
+        if text:
+            return _clean_text(text)
+    for item in _iter_jsonl(session_dir / "chat_history.jsonl"):
+        if item.get("type") != "user":
+            continue
+        text = _extract_text(item.get("content"))
+        if text:
+            return _clean_text(text)
+    return ""
+
+
+def _grok_active_session_ids(path: Path) -> tuple[set[str], bool]:
+    if not path.exists():
+        return set(), True
+    data = _read_json(path)
+    if not isinstance(data, list):
+        return set(), False
+    active: set[str] = set()
+    reliable = True
+    for value in data:
+        if not isinstance(value, dict):
+            reliable = False
+            continue
+        session_id = ""
+        for key in ("session_id", "sessionId", "id"):
+            session_id = str(value.get(key) or "")
+            if session_id:
+                break
+        if session_id:
+            active.add(session_id)
+        else:
+            reliable = False
+    return active, reliable
+
+
+AGY_SUMMARY_COLUMNS = (
+    "conversation_id",
+    "title",
+    "preview",
+    "step_count",
+    "last_modified_time",
+    "workspace_uris",
+    "status",
+    "source",
+    "project_id",
+    "agent_name",
+    "parent_conversation_id",
+    "nesting_depth",
+    "not_fully_idle",
+    "killed",
+    "last_user_input_time",
+)
+
+
+def _read_agy_summaries(path: Path) -> list[dict[str, Any]]:
+    connection = _open_sqlite_readonly(path)
+    try:
+        columns = {
+            str(row[1]) for row in connection.execute('PRAGMA table_info("conversation_summaries")')
+        }
+        missing = set(AGY_SUMMARY_COLUMNS) - columns
+        if missing:
+            raise ValueError("missing expected conversation summary fields")
+        names = ", ".join(f'"{name}"' for name in AGY_SUMMARY_COLUMNS)
+        rows = connection.execute(f"SELECT {names} FROM conversation_summaries").fetchall()
+        return [dict(zip(AGY_SUMMARY_COLUMNS, row, strict=True)) for row in rows]
+    finally:
+        connection.close()
+
+
+def _open_sqlite_readonly(path: Path) -> sqlite3.Connection:
+    uri = path.resolve().as_uri()
+    try:
+        return sqlite3.connect(f"{uri}?mode=ro", uri=True, timeout=1)
+    except sqlite3.OperationalError:
+        return sqlite3.connect(f"{uri}?mode=ro&immutable=1", uri=True)
+
+
+def _agy_workspace(value: str) -> str:
+    try:
+        uris = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        uris = []
+    if isinstance(uris, list):
+        for uri in uris:
+            workspace = _uri_to_path(str(uri or ""))
+            if workspace:
+                return workspace
+    return _uri_to_path(value)
 
 
 def _read_crew_chief_registry(path: Path | None) -> dict[str, dict[str, str]]:
@@ -667,6 +1083,14 @@ def _is_continue_session(value: Any) -> bool:
 
 def _is_copilot_workspace(value: dict[str, str]) -> bool:
     return bool(value.get("id") or value.get("cwd"))
+
+
+def _is_grok_summary(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("info"), dict)
+        and bool(value["info"].get("id"))
+    )
 
 
 def _extract_text(value: Any) -> str:
