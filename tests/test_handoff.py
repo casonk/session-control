@@ -183,3 +183,15 @@ def test_cli_handoff_prints_the_brief_and_command(app_config, monkeypatch, capsy
     assert "Brief:" in out and "Run: cd /workspace/example-project && claude " in out
     assert cli.main(["handoff", session.public_id, "--to", "codex"]) == 1
     assert "already a codex session" in capsys.readouterr().err
+
+
+def test_list_page_offers_a_handoff_on_every_row(app_config):
+    seed_codex(app_config.codex_root)
+    seed_claude(app_config.claude_root)
+    sessions = _sessions(app_config)
+    page = create_app(app_config).test_client().get("/").get_data(as_text=True)
+    for provider, session in sessions.items():
+        assert f'action="/sessions/{session.public_id}/handoff"' in page
+        row = page.split(f'action="/sessions/{session.public_id}/handoff"')[1].split("</form>")[0]
+        assert f'<option value="{provider}">' not in row
+        assert '<option value="grok">' in row

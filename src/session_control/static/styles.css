@@ -386,15 +386,35 @@ select {
   overflow-wrap: anywhere;
 }
 
+/* One tidy column of controls: full-width primary actions, a joined hand-off
+   picker, and Copy/Review side by side. */
 .actions {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
-  align-items: flex-end;
+  width: 232px;
+  align-content: start;
+}
+
+.actions > * {
+  min-width: 0;
 }
 
 .actions form {
   margin: 0;
+}
+
+.actions > form,
+.actions > .permission-select {
+  grid-column: 1 / -1;
+}
+
+.actions .button {
+  width: 100%;
+}
+
+.actions .permission-select {
+  width: auto;
 }
 
 .open-form {
@@ -685,7 +705,7 @@ select {
   }
 
   .actions {
-    align-items: flex-start;
+    width: 100%;
     gap: 6px;
   }
 
@@ -701,4 +721,21 @@ select {
   .filters .button {
     justify-self: start;
   }
+}
+
+/* Target picker and button read as one joined control. */
+.handoff-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.handoff-form select {
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+  box-shadow: var(--shadow);
+}
+
+.handoff-form .button {
+  width: auto;
+  border-radius: 0 8px 8px 0;
 }
