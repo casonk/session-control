@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from session_control import handoff
@@ -124,3 +126,54 @@ def test_brief_masks_secrets_before_truncating_and_says_so(app_config):
     assert secret not in brief and secret[:12] not in brief
     assert REDACTED in brief
     assert "1 secret-like value(s)" in brief
+
+
+def _claude_session_with_secret(app_config):
+    from tests.helpers import seed_claude
+
+    path = seed_claude(app_config.claude_root)
+    write_jsonl(
+        path,
+        [
+            {
+                "type": "user",
+                "sessionId": "c7df09f0-b9f2-4563-853e-f64fd095128f",
+                "cwd": "/workspace/crew-chief",
+                "message": {
+                    "role": "user",
+                    "content": f"Use this token {GOOGLE_ACCESS} and open ?code={GOOGLE_CODE}",
+                },
+            }
+        ],
+    )
+
+
+def test_scanned_sessions_never_expose_secrets_in_title_or_preview(app_config):
+    from session_control.scanner import SessionScanner
+
+    _claude_session_with_secret(app_config)
+    session = {s.provider: s for s in SessionScanner(app_config).scan().sessions}["claude"]
+    for text in (session.preview, session.title, str(session.to_dict())):
+        assert GOOGLE_ACCESS not in text and GOOGLE_CODE not in text
+    assert REDACTED in session.preview
+
+
+def test_web_pages_and_json_never_expose_secrets(app_config):
+    from session_control.web import create_app
+
+    _claude_session_with_secret(app_config)
+    client = create_app(app_config).test_client()
+    page = client.get("/").get_data(as_text=True)
+    assert GOOGLE_ACCESS not in page and GOOGLE_CODE not in page and REDACTED in page
+    # Search runs over the masked preview, so a secret cannot be probed for by searching.
+    result_link = re.compile(r'href="/sessions/[0-9a-f]{20}"')
+    assert not result_link.search(client.get(f"/?q={GOOGLE_ACCESS}").get_data(as_text=True))
+    assert result_link.search(client.get("/?q=token").get_data(as_text=True))
+
+
+def test_session_record_redaction_is_idempotent(app_config):
+    from session_control.scanner import SessionScanner
+
+    _claude_session_with_secret(app_config)
+    session = {s.provider: s for s in SessionScanner(app_config).scan().sessions}["claude"]
+    assert redact(session.preview) == (session.preview, 0)

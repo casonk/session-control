@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from session_control.redaction import redact
+
 
 @dataclass(frozen=True)
 class SessionRecord:
@@ -25,6 +27,15 @@ class SessionRecord:
     resume_command: str
     active: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Titles and previews are first user messages and routinely hold pasted tokens or
+        # OAuth callback URLs. Mask them here, the single choke point every scanner and
+        # every UI, JSON and search path goes through, so none of them can leak one.
+        for name in ("title", "preview"):
+            value = getattr(self, name)
+            if isinstance(value, str):
+                object.__setattr__(self, name, redact(value)[0])
 
     @property
     def public_id(self) -> str:
