@@ -230,6 +230,18 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button class="button primary" type="submit">Open</button>
               </form>
+              {% set targets = handoff_targets_for(item.provider) %}
+              {% if targets %}
+                <form class="handoff-form" method="post" action="{{ url_for('handoff_session', public_id=item.public_id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <select name="target" aria-label="Continue this work in another provider">
+                    {% for target in targets %}
+                      <option value="{{ target }}">{{ target }}</option>
+                    {% endfor %}
+                  </select>
+                  <button class="button" type="submit" title="Starts a new session that reads a summary of this one">Hand off</button>
+                </form>
+              {% endif %}
               <button class="button copy" type="button" data-copy="{{ item.resume_command }}">Copy</button>
               <a class="button ghost" href="{{ url_for('detail', public_id=item.public_id) }}">Review</a>
               <form method="post" action="{{ url_for('delete_session', public_id=item.public_id) }}">

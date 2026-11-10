@@ -160,6 +160,8 @@ def create_app(
             handoff_targets=handoff_targets_for(session_record.provider),
         )
 
+    app.jinja_env.globals["handoff_targets_for"] = handoff_targets_for
+
     @app.get("/api/sessions")
     def api_sessions():
         report = app_scanner.scan()

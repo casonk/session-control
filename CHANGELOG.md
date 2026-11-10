@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Offer the handoff on every row of the session list, not only on the session page: a target picker and a **Hand off** button beside Open, Copy, Review and Delete.
 - Match the portfolio type scale: the body takes `--font`, `--font-size` and `--mono` from the shared theme (so the top bar's font choice now applies here) and the page heading drops from a 25-35px display size to the home page's ~17px.
 - Add a cross-provider **handoff**: continue any session in a different provider (Claude Code, Codex, Grok, Continue, Copilot or Antigravity). It writes a private context brief (recent conversation for Codex and Claude Code sources, the opening message otherwise) and starts a new session in the target CLI that reads it. Use the "Continue in" control on the session page or `session-control handoff <id> --to <provider>`.
 - Refuse every request whose `Host` header is not a loopback name, this site's registered hostname (from the portfolio site store), or the host of `SESSION_CONTROL_PUBLIC_ORIGIN` / `SESSION_CONTROL_ALLOWED_ORIGINS`, before the origin and CSRF checks. A DNS-rebinding page sent its own hostname as both `Host` and `Origin`, passed the same-origin check, and could fetch the CSRF token to delete or open sessions. The shared check lives in the vendored portfolio site seam (re-vendored here). **Upgrade note:** a deployment reached through a proxy under a name that is neither registered nor listed in `SESSION_CONTROL_ALLOWED_ORIGINS` will get 403.

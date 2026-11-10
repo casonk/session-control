@@ -702,3 +702,9 @@ select {
     justify-self: start;
   }
 }
+
+.handoff-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
