@@ -42,7 +42,9 @@ _SENSITIVE_PARAMS = (
     "x-amz-security-token",
 )
 _QUERY_PARAM = re.compile(
-    r"([?&](?:" + "|".join(re.escape(p) for p in _SENSITIVE_PARAMS) + r")=)(?!\[REDACTED\])[^&\s\"'<>`)\]]+",
+    r"([?&](?:"
+    + "|".join(re.escape(p) for p in _SENSITIVE_PARAMS)
+    + r")=)(?!\[REDACTED\])[^&\s\"'<>`)\]]+",
     re.IGNORECASE,
 )
 
@@ -50,17 +52,17 @@ _QUERY_PARAM = re.compile(
 _URL_USERINFO = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s/:@]+:)[^\s/@]+(@)", re.IGNORECASE)
 
 # Authorization header values.
-_AUTH_HEADER = re.compile(r"\b(Bearer|Basic)\s+(?!\[REDACTED\])[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)
+_AUTH_HEADER = re.compile(
+    r"\b(Bearer|Basic)\s+(?!\[REDACTED\])[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE
+)
 
 # Named secret fields: KEY=value, KEY: value, "key": "value".
-_NAMED_SECRET = re.compile(
-    r"""(?ix)
+_NAMED_SECRET = re.compile(r"""(?ix)
     (\b[\w.-]*(?:secret|token|passw(?:or)?d|passwd|api[_-]?key|private[_-]?key|credential)[\w.-]*
      ["']?\s*[:=]\s*["']?)
     (?!\[REDACTED\])
     [^\s"',;&)\]}]{8,}
-    """
-)
+    """)
 
 # Well-known token shapes, matched anywhere in the text.
 _TOKEN_SHAPES = tuple(
