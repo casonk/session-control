@@ -21,6 +21,30 @@ and move them to Done.
   hosts. Keep inventories metadata-only and remote sessions read-only—never
   sync provider directories, transcripts, private paths, or action commands.
 
+- [ ] [manual:2026-11-11] **Get the Anthropic Compliance Access Key and run the first live
+  `session-control sync-web`.** The importer (`web_chats.py`) was built from Anthropic's docs and
+  tested only against a fake server. A primary owner of the Claude Enterprise organization enables
+  the Compliance API at claude.ai, Organization settings, API, then creates a key with the
+  `read:compliance_user_data` scope (an Admin API key from the Console is refused with 403). Store
+  it in an owner-only file named by `SESSION_CONTROL_ANTHROPIC_COMPLIANCE_KEY_FILE`, set
+  `SESSION_CONTROL_ANTHROPIC_USER_EMAIL`, and run `sync-web`. Confirm the `anthropic-version`
+  value: the guide uses `2026-10-21`, the API reference examples show `2023-06-01`.
+- [ ] [manual:2026-11-11] **Get an OpenAI Enterprise Compliance API key, then add ChatGPT.** Needs
+  a ChatGPT Enterprise or Edu workspace; access is requested from OpenAI. OpenAI's docs
+  (learn.chatgpt.com/docs/enterprise/compliance-api) and download script give the base
+  `https://api.chatgpt.com/v1/compliance`, `Authorization: Bearer <key>`, and
+  `GET /{workspaces|organizations}/{id}/logs?event_type=conversation_message&after=<ISO time>&limit=`
+  (an `org-` id selects `organizations`), paged by `last_end_time` while `has_more`, with each file
+  fetched from `.../logs/{id}` as JSONL. The message record schema (conversation id, title, role,
+  text) is in the Admin API reference at chatgpt.com/public/admin/api-reference and was not
+  readable, and older `/conversations` routes are unconfirmed. Fetch one real log file first, then
+  write the parser against it; do not guess the fields.
+- [ ] [manual:2026-11-11] **Import personal-account chats from the data exports.** Personal ChatGPT,
+  claude.ai and Gemini accounts have no history API. ChatGPT: Settings, Data controls, Export data
+  (emailed zip with `conversations.json`). claude.ai: Settings, Privacy, Export data. Gemini: Google
+  Takeout. Add `session-control import <provider> <zip>` that unpacks into the same owner-only
+  web-chat cache, keyed by conversation id, and write each parser against a real export. Grok and
+  Copilot web chats have no known export or API yet.
 
 ## In Progress
 
