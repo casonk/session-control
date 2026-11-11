@@ -64,6 +64,13 @@ and move them to Done.
   needs care. Grok has no history API; use the account data download. Copilot web chats have no
   known export or API yet. No provider listed here has a personal-account history API.
 
+- [ ] [manual:2026-11-11] **Bring your own session-control checkout up to date.** Its `main` shows
+  "ahead 3" because the remote is SSH and cannot be fetched from the agent environment. Run
+  `git fetch origin` from your own shell, check `git log origin/main..main` is only commits that
+  are already merged upstream under new hashes, then reset or fast-forward `main` to `origin/main`.
+  Do this before the first `session-control sync-web`, so the command exists in your install
+  (`pip install -e .` again if the entry point predates it).
+
 ## In Progress
 
 ## Done
