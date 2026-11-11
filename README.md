@@ -37,6 +37,28 @@ The web UI binds to `127.0.0.1:5420` by default. For phone access, keep the app
 on loopback and expose it through a trusted local proxy such as
 `wiring-harness` Caddy with mTLS or a WireGuard-only route.
 
+## claude.ai chats
+
+Chats made in the claude.ai web app are not on disk. For Claude Enterprise organizations,
+Anthropic's Compliance API serves them, so `session-control sync-web` copies them into a local
+cache that the scan lists as provider `claude-web`.
+
+1. A primary owner enables the Compliance API at claude.ai, Organization settings, API.
+2. Create a key there with the `read:compliance_user_data` scope. An Admin API key from the
+   Console does not work (403).
+3. Put the key in `SESSION_CONTROL_ANTHROPIC_COMPLIANCE_KEY_FILE` (an owner-only file) or
+   `SESSION_CONTROL_ANTHROPIC_COMPLIANCE_KEY`. Set `SESSION_CONTROL_ANTHROPIC_USER_EMAIL` to
+   your address if the key can see other people's chats.
+4. Run `session-control sync-web` (add `--full` to re-read everything). Later runs fetch only
+   chats updated since the last one, and chats you delete in claude.ai leave the cache.
+
+Each chat is stored as one owner-only JSON file with its text messages (tool calls and results
+are left out). Titles and previews are redacted like every other provider. "Resume" is an
+`xdg-open` of the chat's claude.ai address, and deleting a session here removes only the local
+copy; the next sync fetches it again. Personal claude.ai accounts have no such API, only the
+Settings, Privacy, Export data download. ChatGPT is not covered yet; OpenAI's Compliance API
+is Enterprise-only and its endpoints have not been confirmed.
+
 ## Configuration
 
 Copy `config/session-control.env.example` to
@@ -53,6 +75,9 @@ Common variables:
 | `SESSION_CONTROL_ALLOWED_ORIGINS` | unset | Comma-separated extra origins for CSRF checks |
 | `SESSION_CONTROL_GROK_ROOT` | `~/.grok` | Grok Build state root |
 | `SESSION_CONTROL_AGY_ROOT` | `~/.gemini/antigravity-cli` | Google Antigravity CLI state root |
+| `SESSION_CONTROL_WEBCHAT_DIR` | `~/.local/share/session-control/webchats` | Owner-only cache of claude.ai chats |
+| `SESSION_CONTROL_ANTHROPIC_COMPLIANCE_KEY` | unset | Compliance Access Key (or `..._KEY_FILE` for a file holding it) |
+| `SESSION_CONTROL_ANTHROPIC_USER_EMAIL` | unset | Keep only this user's chats when the key sees the whole organization |
 | `SESSION_CONTROL_TRASH_DIR` | `~/.local/share/session-control/trash` | Delete destination |
 | `SESSION_CONTROL_DIGEST_DIR` | `~/.local/share/session-control/digests` | Private category/repo termination records |
 | `SESSION_CONTROL_TRASH_RETENTION_DAYS` | `7` | Days to keep restorable raw files |

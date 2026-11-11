@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- List claude.ai web chats as provider `claude-web`. `session-control sync-web` reads them through Anthropic's Compliance API (Claude Enterprise, a Compliance Access Key) into an owner-only local cache, fetching only chats updated since the last run, honouring rate limits and dropping chats deleted in claude.ai. Titles and previews are redacted like other providers. ChatGPT is not covered yet.
 - Mask secrets in session titles and previews everywhere they appear. `SessionRecord` now redacts `title` and `preview` when it is built, so the session list, detail page, `scan --json`, search and deduplication never see a pasted token or OAuth callback URL, whichever provider scanner produced the record. Search runs over the masked text, so a secret cannot be probed for.
 
 - Read Grok sessions as a handoff source. A handoff from Grok now carries the recent conversation instead of only the opening message: streamed `user_message_chunk` and `agent_message_chunk` events in `updates.jsonl` are merged into one turn per speaker, tool work separates paragraphs, and thoughts and tool output are left out. Continue, Copilot and AGY sources still hand off the opening message only.
