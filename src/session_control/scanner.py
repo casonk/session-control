@@ -27,7 +27,7 @@ from session_control.models import ScanError, ScanReport, SessionRecord
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
-PROVIDERS = ("codex", "claude", "continue", "copilot", "grok", "agy")
+PROVIDERS = ("codex", "claude", "continue", "copilot", "grok", "agy", "claude-web")
 CLAUDE_TOKEN_FIELDS = (
     "input_tokens",
     "cache_creation_input_tokens",
@@ -72,6 +72,7 @@ class SessionScanner:
             "copilot": self._scan_copilot,
             "grok": self._scan_grok,
             "agy": self._scan_agy,
+            "claude-web": self._scan_claude_web,
         }
         for provider in selected:
             if provider not in scanners:
@@ -283,6 +284,27 @@ class SessionScanner:
             if record:
                 records.append(record)
         return records, errors
+
+    def _scan_claude_web(self) -> ScanReport:
+        """claude.ai chats cached by ``session-control sync-web``."""
+        records: list[SessionRecord] = []
+        errors: list[ScanError] = []
+        base = self.config.web_chat_dir
+        directory = base / "claude-web" if base else None
+        if directory is None or not directory.is_dir():
+            return ScanReport((), ())
+        for path in sorted(directory.glob("*.json")):
+            if path.name.startswith("."):
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                errors.append(ScanError("claude-web", f"Unreadable cached chat: {path.name}"))
+                continue
+            record = _claude_web_record(path, data, self.config.max_preview_chars)
+            if record:
+                records.append(record)
+        return ScanReport(tuple(records), tuple(errors))
 
     def _scan_agy(self) -> ScanReport:
         from session_control.profiles import load_profiles
@@ -710,6 +732,33 @@ def _copilot_record(
             "summary_count": workspace_data.get("summary_count") or "",
             "profile": profile_name,
         },
+    )
+
+
+def _claude_web_record(path: Path, data: Any, max_preview_chars: int) -> SessionRecord | None:
+    if not isinstance(data, dict) or not data.get("id"):
+        return None
+    messages = [m for m in data.get("messages") or [] if isinstance(m, dict)]
+    first_user = next((str(m.get("text") or "") for m in messages if m.get("role") == "user"), "")
+    href = str(data.get("href") or "")
+    # Only offer to open a claude.ai address; anything else in the cache stays inert text.
+    safe_href = href if href.startswith("https://claude.ai/") else ""
+    created = _normalize_datetime(str(data.get("created_at") or "")) or _mtime_iso(path)
+    updated = _normalize_datetime(str(data.get("updated_at") or "")) or created
+    return SessionRecord(
+        provider="claude-web",
+        session_id=str(data["id"]),
+        title=str(data.get("name") or "") or _title_from_text(first_user) or str(data["id"]),
+        workspace="",
+        created_at=created,
+        updated_at=updated,
+        primary_path=path,
+        delete_targets=(path,),
+        size_bytes=_path_size(path),
+        message_count=len(messages),
+        preview=_truncate(_clean_text(first_user), max_preview_chars),
+        resume_command=f"xdg-open {shlex.quote(safe_href)}" if safe_href else "",
+        metadata={"model": str(data.get("model") or ""), "url": safe_href, "source": "web"},
     )
 
 

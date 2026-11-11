@@ -46,6 +46,7 @@ class AppConfig:
     federation_store_dir: Path | None = None
     federation_tokens: dict[str, str] = field(default_factory=dict)
     crew_chief_registry: Path | None = None
+    web_chat_dir: Path | None = None
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -107,6 +108,10 @@ class AppConfig:
             crew_chief_registry=_path_env(
                 "SESSION_CONTROL_CREW_CHIEF_REGISTRY", _crew_chief_registry_default(home)
             ),
+            web_chat_dir=_path_env(
+                "SESSION_CONTROL_WEBCHAT_DIR",
+                home / ".local" / "share" / "session-control" / "webchats",
+            ),
         )
 
     def provider_root(self, provider: str) -> Path:
@@ -118,6 +123,8 @@ class AppConfig:
             "grok": self.grok_root,
             "agy": self.agy_root,
         }
+        if provider == "claude-web" and self.web_chat_dir is not None:
+            return self.web_chat_dir / "claude-web"
         return roots[provider]
 
 

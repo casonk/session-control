@@ -250,6 +250,18 @@ def _build_parser() -> argparse.ArgumentParser:
     rotate = subparsers.add_parser("rotate", help="expire old trash and digest records")
     rotate.add_argument("--dry-run", action="store_true", help="preview expiry")
 
+    sync_web = subparsers.add_parser(
+        "sync-web", help="pull claude.ai chats through Anthropic's Compliance API"
+    )
+    sync_web.add_argument(
+        "--full", action="store_true", help="re-read every chat, not just new ones"
+    )
+    sync_web.add_argument(
+        "--user-email",
+        default=os.environ.get("SESSION_CONTROL_ANTHROPIC_USER_EMAIL", ""),
+        help="keep only this user's chats (default: SESSION_CONTROL_ANTHROPIC_USER_EMAIL)",
+    )
+
     web = subparsers.add_parser("web", help="run the private web UI")
     web.add_argument("--host", default=os.environ.get("SESSION_CONTROL_HOST", "127.0.0.1"))
     web.add_argument(
@@ -358,6 +370,35 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"Published {len(inventory['sessions'])} session summary record(s).")
         return 0
+
+    if args.command == "sync-web":
+        from session_control import web_chats
+
+        try:
+            key = web_chats.access_key()
+            if not key:
+                print(
+                    "Set SESSION_CONTROL_ANTHROPIC_COMPLIANCE_KEY or "
+                    "SESSION_CONTROL_ANTHROPIC_COMPLIANCE_KEY_FILE to a Compliance Access Key.",
+                    file=sys.stderr,
+                )
+                return 2
+            result = web_chats.sync(
+                web_chats.ComplianceClient(key),
+                config.web_chat_dir,
+                user_email=args.user_email,
+                full=args.full,
+            )
+        except web_chats.ComplianceError as exc:
+            print(f"sync-web: {exc}", file=sys.stderr)
+            return 1
+        print(
+            f"fetched {result.fetched}, unchanged or skipped {result.skipped}, "
+            f"removed {result.removed}"
+        )
+        for error in result.errors:
+            print(f"WARN {error}", file=sys.stderr)
+        return 1 if result.errors else 0
 
     if args.command == "deduplicate":
         providers = tuple(args.provider) if args.provider else None
