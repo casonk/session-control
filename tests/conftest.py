@@ -27,3 +27,11 @@ def _isolated_portfolio_site(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("PORTFOLIO_STORE", str(tmp_path_factory.mktemp("portfolio-store")))
     monkeypatch.delenv("PORTFOLIO_SITE_DIR", raising=False)
     monkeypatch.delenv("PORTFOLIO_ALLOWED_HOSTS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_systemd_scope(monkeypatch):
+    """Never wrap tmux in ``systemd-run``, whatever the host (a CI runner has a user manager)."""
+    from session_control import actions
+
+    monkeypatch.setattr(actions, "_scope_prefix", lambda: [])

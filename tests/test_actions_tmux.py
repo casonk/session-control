@@ -58,11 +58,6 @@ class FakeTmux:
         return [call[1] for call in self.calls]
 
 
-@pytest.fixture(autouse=True)
-def _no_scope(monkeypatch):
-    monkeypatch.setattr(actions, "_scope_prefix", lambda: [])
-
-
 @pytest.fixture
 def tmux(monkeypatch):
     def install(**answers) -> FakeTmux:
