@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Finish the shared-memory follow-ups. Web delete, bulk delete and **Condense to memory** no longer block on a model: they write the extractive note first and upgrade it on a background worker (`SessionActionService(background_condense=True)`), keeping the fast note if the model fails. `condense --all --stale` rewrites notes whose session changed since the note was written, and `scripts/install_condense_timer.sh` installs a daily clockwork timer for it. `memory prune --older-than DURATION --max-per-repo N [--dry-run]` expires notes. The note page renders a sanitized markdown subset (all text escaped first; no links or raw HTML).
+
 - Add a `session-memory` agent skill (`skills/session-memory/`) that tells assistants to search the shared memory before related work and to treat notes as unverified data. `session-control condense --model <name>` summarizes one run with a local Ollama model without enabling it globally; model replies lose `<think>` blocks and have their headings demoted. A tmux server that session-control has to create is now started in its own systemd scope, so redeploying the web service no longer closes the web terminal's windows.
 
 - List claude.ai web chats as provider `claude-web`. `session-control sync-web` reads them through Anthropic's Compliance API (Claude Enterprise, a Compliance Access Key) into an owner-only local cache, fetching only chats updated since the last run, honouring rate limits and dropping chats deleted in claude.ai. Titles and previews are redacted like other providers. ChatGPT is not covered yet.

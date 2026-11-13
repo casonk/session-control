@@ -11,86 +11,25 @@ and move them to Done.
 
 ## Pending
 
-- [ ] [manual:2026-11-13] Decide whether to enable the Ollama condenser by
-  default (`SESSION_CONTROL_CONDENSER=ollama`, model `qwen3:14b` took ~14s per
-  session in a trial and gave clear Goal/Decisions/State/Open-items notes).
-  Before enabling, make web delete and bulk delete not block on a model call
-  (condense in the background or fall back to the extractive note there), then
-  upgrade existing notes with `session-control condense --all --refresh --model
-  qwen3:14b`.
-- [ ] [manual:2026-11-13] Install a clockwork timer that runs
-  `session-control condense --all` so sessions that are still live (and are
-  never pruned) get notes, and refresh notes for sessions that kept growing.
-- [ ] [manual:2026-11-13] Add retention for memory notes (age or count cap,
-  with a dry run) and a way to merge or drop stale notes for the same
-  workspace.
-- [ ] [manual:2026-11-13] Render note markdown in the web Memory view (it is
-  plain text today); needs a sanitizing renderer since note text is untrusted.
-- [ ] [manual:2026-11-13] Promote the cgroup lesson (service restarts kill
-  child processes) to `traction-control/LESSONSLEARNED.md`.
-- [ ] [manual:2026-10-11] After merging the multi-machine inventory PR,
-  deploy the opt-in federation receiver on the server and publisher on each
-  approved client. Update both checkouts to `main`; configure the server's
-  private federation store and a distinct owner-only token per node; expose
-  only the ingestion/read routes through the existing Caddy mTLS boundary;
-  configure the Mac publisher with its client certificate and a scheduled
-  `session-control publish-inventory`; then verify **All machines** shows both
-  hosts. Keep inventories metadata-only and remote sessions read-only—never
-  sync provider directories, transcripts, private paths, or action commands.
-
-- [ ] [manual:2026-11-11] **Request your own web-chat exports (a person has to do this).** Put each
-  file in an owner-only folder outside any repository, for example `~/private/chat-exports/`, and
-  do not commit or paste them anywhere. Some take a day, so request them all first:
-  1. ChatGPT: chatgpt.com, Settings, Data controls, Export data. An emailed link gives a zip with
-     `conversations.json`.
-  2. claude.ai: Settings, Privacy, Export data. An emailed link gives the download.
-  3. Gemini: takeout.google.com, deselect all, choose My Activity, open "All activity data
-     included", pick only Gemini Apps, and choose the JSON format. First check that Gemini Apps
-     activity is turned on in myactivity.google.com; chats made while it was off, and deleted
-     chats, are not in the export. Workspace-managed accounts often get an empty file; if so, note
-     it here.
-  4. Grok: accounts.x.ai/data, Download account data (a zip or JSON by emailed link, reportedly
-     valid 24 hours). If that page is missing, try grok.com Settings, Data, or the X account
-     archive.
-  Then write each file's path and date next to its importer item below, so the parser can be built
-  against the real format.
-- [ ] [manual:2026-11-11] **Get the Anthropic Compliance Access Key and run the first live
-  `session-control sync-web`.** The importer (`web_chats.py`) was built from Anthropic's docs and
-  tested only against a fake server. A primary owner of the Claude Enterprise organization enables
-  the Compliance API at claude.ai, Organization settings, API, then creates a key with the
-  `read:compliance_user_data` scope (an Admin API key from the Console is refused with 403). Store
-  it in an owner-only file named by `SESSION_CONTROL_ANTHROPIC_COMPLIANCE_KEY_FILE`, set
-  `SESSION_CONTROL_ANTHROPIC_USER_EMAIL`, and run `sync-web`. Confirm the `anthropic-version`
-  value: the guide uses `2026-10-21`, the API reference examples show `2023-06-01`.
-- [ ] [manual:2026-11-11] **Get an OpenAI Enterprise Compliance API key, then add ChatGPT.** Needs
-  a ChatGPT Enterprise or Edu workspace; access is requested from OpenAI. OpenAI's docs
-  (learn.chatgpt.com/docs/enterprise/compliance-api) and download script give the base
-  `https://api.chatgpt.com/v1/compliance`, `Authorization: Bearer <key>`, and
-  `GET /{workspaces|organizations}/{id}/logs?event_type=conversation_message&after=<ISO time>&limit=`
-  (an `org-` id selects `organizations`), paged by `last_end_time` while `has_more`, with each file
-  fetched from `.../logs/{id}` as JSONL. The message record schema (conversation id, title, role,
-  text) is in the Admin API reference at chatgpt.com/public/admin/api-reference and was not
-  readable, and older `/conversations` routes are unconfirmed. Fetch one real log file first, then
-  write the parser against it; do not guess the fields.
-- [ ] [manual:2026-11-11] **Import personal-account chats from the data exports.** Personal ChatGPT,
-  claude.ai and Gemini accounts have no history API. ChatGPT: Settings, Data controls, Export data
-  (emailed zip with `conversations.json`). claude.ai: Settings, Privacy, Export data. Gemini: Google
-  Takeout. Add `session-control import <provider> <zip>` that unpacks into the same owner-only
-  web-chat cache, keyed by conversation id, and write each parser against a real export. Gemini's
-  Takeout is a per-prompt activity log (JSON or `MyActivity.html`), so grouping prompts into chats
-  needs care. Grok has no history API; use the account data download. Copilot web chats have no
-  known export or API yet. No provider listed here has a personal-account history API.
-
-- [ ] [manual:2026-11-11] **Bring your own session-control checkout up to date.** Its `main` shows
-  "ahead 3" because the remote is SSH and cannot be fetched from the agent environment. Run
-  `git fetch origin` from your own shell, check `git log origin/main..main` is only commits that
-  are already merged upstream under new hashes, then reset or fast-forward `main` to `origin/main`.
-  Do this before the first `session-control sync-web`, so the command exists in your install
-  (`pip install -e .` again if the entry point predates it).
+- [ ] [manual:2026-11-13] Retention is manual (`memory prune`); consider a
+  default policy and a clockwork job once the note count is known to grow.
+- [ ] [manual:2026-11-13] Merge or drop stale notes for the same workspace
+  (the per-repo cap only keeps the newest N; it does not combine them).
 
 ## In Progress
 
 ## Done
+
+- [x] [manual:2026-11-13] Enable the Ollama condenser (`qwen3:14b`) and make
+  the web UI non-blocking: removal writes the extractive note, then a worker
+  upgrades it. Existing notes upgraded with `condense --all --refresh`.
+- [x] [manual:2026-11-13] Daily clockwork timer for `condense --all --stale`
+  (`scripts/install_condense_timer.sh`).
+- [x] [manual:2026-11-13] Memory retention: `memory prune --older-than
+  --max-per-repo [--dry-run]`.
+- [x] [manual:2026-11-13] Sanitized markdown rendering in the Memory view.
+- [x] [manual:2026-11-13] Promote the service-restart cgroup lesson to
+  `traction-control/LESSONSLEARNED.md` (traction-control #141).
 
 - [x] [manual:2026-08-23] Name `CHATHISTORY.md` in `AGENTS.md` as the
   local-only, gitignored session memory, alongside `LESSONSLEARNED.md`; it

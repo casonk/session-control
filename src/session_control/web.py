@@ -35,6 +35,7 @@ from session_control.connection_monitor import ConnectionMonitor, targets_from_c
 from session_control.ecu_status import read_status as read_ecu_status
 from session_control.federation import build_inventory, load_inventories, store_inventory
 from session_control.handoff import handoff_targets_for
+from session_control.markdown_safe import render_markdown
 from session_control.memory import MemoryStore
 from session_control.models import SessionRecord
 from session_control.scanner import PROVIDERS, SessionScanner
@@ -68,7 +69,7 @@ def create_app(
 ) -> Flask:
     app_config = config or AppConfig.from_env()
     app_scanner = scanner or SessionScanner(app_config)
-    app_actions = actions or SessionActionService(app_config, app_scanner)
+    app_actions = actions or SessionActionService(app_config, app_scanner, background_condense=True)
     app_claude_status = claude_status_poller or _claude_status_poller(app_config)
     if app_claude_status:
         app_claude_status.start()
@@ -166,6 +167,7 @@ def create_app(
         )
 
     app.jinja_env.globals["handoff_targets_for"] = handoff_targets_for
+    app.jinja_env.filters["markdown_safe"] = render_markdown
 
     @app.get("/api/sessions")
     def api_sessions():

@@ -10,6 +10,7 @@ import shlex
 import shutil
 import sqlite3
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,7 +31,7 @@ from session_control.handoff import (
     write_brief,
 )
 from session_control.home_profiles import owning_account_home
-from session_control.memory import MemoryStore, build_condenser
+from session_control.memory import ExtractiveCondenser, MemoryStore, build_condenser
 from session_control.models import ScanError, SessionRecord
 from session_control.scanner import SessionScanner
 
@@ -124,9 +125,19 @@ class DeduplicateResult:
 
 
 class SessionActionService:
-    def __init__(self, config: AppConfig, scanner: SessionScanner | None = None):
+    def __init__(
+        self,
+        config: AppConfig,
+        scanner: SessionScanner | None = None,
+        *,
+        background_condense: bool = False,
+    ):
         self.config = config
         self.scanner = scanner or SessionScanner(config)
+        # A long-lived server must not block a request on a model call: removal writes the
+        # fast extractive note first and upgrades it on a worker thread afterwards.
+        self.background_condense = background_condense
+        self._executor: ThreadPoolExecutor | None = None
 
     def open_in_webterm(
         self, public_id: str, *, codex_permission_preset: str | None = None
@@ -566,7 +577,7 @@ class SessionActionService:
         """Write the shared-memory note for one session without removing it."""
         session = self._find(public_id)
         try:
-            return self._condense_session(session, reason)
+            return self._write_note(session, reason)
         except OSError as exc:
             raise SessionActionError(f"Could not write the memory note: {exc}") from exc
 
@@ -576,10 +587,23 @@ class SessionActionService:
         providers: tuple[str, ...] | None = None,
         older_than: timedelta | None = None,
         refresh: bool = False,
+        stale_only: bool = False,
     ) -> tuple[list[str], int, list[str]]:
-        """Write notes for existing sessions. Returns (written ids, skipped, errors)."""
+        """Write notes for existing sessions. Returns (written ids, skipped, errors).
+
+        Existing notes are kept unless ``refresh`` rewrites them all or ``stale_only``
+        rewrites those whose session has changed since the note was written.
+        """
         cutoff = datetime.now(timezone.utc) - older_than if older_than else None
         have = self.memory_store.ids()
+        condensed_at = (
+            {
+                entry.entry_id: _parse_datetime(str(entry.meta.get("condensed_at", "")))
+                for entry in self.memory_store.entries()
+            }
+            if stale_only
+            else {}
+        )
         written: list[str] = []
         errors: list[str] = []
         skipped = 0
@@ -589,7 +613,7 @@ class SessionActionService:
             if (
                 session.active
                 or session.is_short_subagent
-                or (entry_id in have and not refresh)
+                or (entry_id in have and not refresh and not _is_stale(session, condensed_at))
                 or (cutoff and (activity is None or activity >= cutoff))
             ):
                 skipped += 1
@@ -600,18 +624,38 @@ class SessionActionService:
                 errors.append(f"{entry_id}: {exc}")
         return written, skipped, errors
 
-    def _condense_session(self, session: SessionRecord, reason: str):
-        condenser = build_condenser(
+    def _condenser(self):
+        return build_condenser(
             self.config.condenser, self.config.condenser_url, self.config.condenser_model
         )
-        return self.memory_store.condense(session, condenser, reason=reason)
+
+    def _condense_session(self, session: SessionRecord, reason: str):
+        return self.memory_store.condense(session, self._condenser(), reason=reason)
+
+    def _write_note(self, session: SessionRecord, reason: str):
+        """Write the note; with a model condenser on a server, defer the model call."""
+        slow = self._condenser()
+        if self.background_condense and not isinstance(slow, ExtractiveCondenser):
+            return self.memory_store.condense_deferred(
+                session,
+                ExtractiveCondenser(),
+                slow,
+                reason=reason,
+                submit=self._submit_background,
+            )
+        return self.memory_store.condense(session, slow, reason=reason)
+
+    def _submit_background(self, job) -> None:
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="condense")
+        self._executor.submit(job)
 
     def _condense_before_removal(self, session: SessionRecord, reason: str) -> None:
         """Keep a memory note before files move; failure blocks removal, never loses data."""
         if not self.config.condense_on_remove or session.is_short_subagent:
             return
         try:
-            self._condense_session(session, reason)
+            self._write_note(session, reason)
         except OSError as exc:
             raise SessionActionError(
                 f"Could not condense the session before removal ({exc}). "
@@ -699,6 +743,13 @@ class SessionActionService:
 
 def _prune_error_from_scan_error(error: ScanError) -> PruneError:
     return PruneError(provider=error.provider, message=error.message)
+
+
+def _is_stale(session: SessionRecord, condensed_at: dict[str, datetime | None]) -> bool:
+    """True when the session changed after its note was written (False if no note)."""
+    noted = condensed_at.get(f"{session.provider}-{session.public_id}")
+    activity = _session_activity_at(session)
+    return bool(noted and activity and _to_utc(activity) > _to_utc(noted))
 
 
 def _dedupe(values: tuple[str, ...]) -> tuple[str, ...]:

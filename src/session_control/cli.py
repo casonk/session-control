@@ -256,6 +256,11 @@ def _build_parser() -> argparse.ArgumentParser:
     condense.add_argument(
         "--refresh", action="store_true", help="with --all, rewrite notes that already exist"
     )
+    condense.add_argument(
+        "--stale",
+        action="store_true",
+        help="with --all, also rewrite notes whose session changed since the note was written",
+    )
     memory = subparsers.add_parser("memory", help="read the shared agent memory")
     memory_sub = memory.add_subparsers(dest="memory_command", required=True)
     memory_list = memory_sub.add_parser("list", help="list condensed notes, newest first")
@@ -266,6 +271,14 @@ def _build_parser() -> argparse.ArgumentParser:
     memory_search.add_argument("--json", action="store_true")
     memory_show = memory_sub.add_parser("show", help="print one note by id")
     memory_show.add_argument("entry_id")
+    memory_prune = memory_sub.add_parser("prune", help="delete old or surplus notes")
+    memory_prune.add_argument(
+        "--older-than", type=_parse_duration, help="notes condensed longer ago than this"
+    )
+    memory_prune.add_argument(
+        "--max-per-repo", type=int, help="keep only the newest N notes for each repo"
+    )
+    memory_prune.add_argument("--dry-run", action="store_true", help="show what would be deleted")
     memory_sub.add_parser("index", help="rebuild and print the path of INDEX.md")
     restore = subparsers.add_parser("restore", help="restore a session from local trash")
     restore.add_argument(
@@ -510,6 +523,7 @@ def main(argv: list[str] | None = None) -> int:
             providers=tuple(args.provider) if args.provider else None,
             older_than=args.older_than,
             refresh=args.refresh,
+            stale_only=args.stale,
         )
         print(f"Condensed {len(written)} session(s); skipped {skipped}.")
         for error in errors:
@@ -617,6 +631,21 @@ def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
     store = SessionActionService(config).memory_store
     if args.memory_command == "index":
         print(store.write_index())
+        return 0
+    if args.memory_command == "prune":
+        if args.older_than is None and args.max_per_repo is None:
+            print("error: pass --older-than and/or --max-per-repo", file=sys.stderr)
+            return 2
+        if args.max_per_repo is not None and args.max_per_repo < 1:
+            print("error: --max-per-repo must be at least 1", file=sys.stderr)
+            return 2
+        removed = store.rotate(
+            older_than=args.older_than, max_per_repo=args.max_per_repo, dry_run=args.dry_run
+        )
+        verb = "Would delete" if args.dry_run else "Deleted"
+        for entry in removed:
+            print(f"{verb}  {entry.entry_id}  {entry.meta.get('repo')}  {entry.title}")
+        print(f"{verb} {len(removed)} memory note(s).")
         return 0
     if args.memory_command == "show":
         entry = store.get(args.entry_id)
