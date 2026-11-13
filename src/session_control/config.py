@@ -47,6 +47,11 @@ class AppConfig:
     federation_tokens: dict[str, str] = field(default_factory=dict)
     crew_chief_registry: Path | None = None
     web_chat_dir: Path | None = None
+    memory_dir: Path | None = None
+    condense_on_remove: bool = True
+    condenser: str = "extractive"
+    condenser_url: str | None = None
+    condenser_model: str | None = None
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -112,7 +117,19 @@ class AppConfig:
                 "SESSION_CONTROL_WEBCHAT_DIR",
                 home / ".local" / "share" / "session-control" / "webchats",
             ),
+            memory_dir=_path_env(
+                "SESSION_CONTROL_MEMORY_DIR",
+                home / ".local" / "share" / "session-control" / "memory",
+            ),
+            condense_on_remove=_bool_env("SESSION_CONTROL_CONDENSE_ON_REMOVE", True),
+            condenser=(os.environ.get("SESSION_CONTROL_CONDENSER") or "extractive").lower(),
+            condenser_url=os.environ.get("SESSION_CONTROL_CONDENSER_URL") or None,
+            condenser_model=os.environ.get("SESSION_CONTROL_CONDENSER_MODEL") or None,
         )
+
+    @property
+    def resolved_memory_dir(self) -> Path:
+        return self.memory_dir or self.trash_dir.parent / "memory"
 
     def provider_root(self, provider: str) -> Path:
         roots = {
@@ -157,6 +174,13 @@ def _token_map(value: str) -> dict[str, str]:
         if separator and node_id.strip() and token.strip():
             tokens[node_id.strip().lower()] = token.strip()
     return tokens
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    return _truthy(value)
 
 
 def _truthy(value: str | None) -> bool:

@@ -195,6 +195,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="limit cleanup to subagents with at most five minutes of recorded activity",
     )
+    prune.add_argument(
+        "--no-condense",
+        action="store_true",
+        help="skip writing shared-memory notes before removal",
+    )
     prune.add_argument("--dry-run", action="store_true", help="show what would be pruned")
     prune.add_argument("--json", action="store_true", help="print the prune report as JSON")
 
@@ -234,6 +239,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="target provider",
     )
     handoff.add_argument("--run", action="store_true", help="run the target CLI here")
+    condense = subparsers.add_parser(
+        "condense", help="write a shared-memory note for a session without removing it"
+    )
+    condense.add_argument("session", nargs="?", help="session public id, as shown by `scan --json`")
+    condense.add_argument("--all", action="store_true", help="backfill every existing session")
+    condense.add_argument("--provider", choices=PROVIDERS, action="append", help="limit provider")
+    condense.add_argument(
+        "--older-than", type=_parse_duration, help="with --all, only sessions idle this long"
+    )
+    condense.add_argument(
+        "--refresh", action="store_true", help="with --all, rewrite notes that already exist"
+    )
+    memory = subparsers.add_parser("memory", help="read the shared agent memory")
+    memory_sub = memory.add_subparsers(dest="memory_command", required=True)
+    memory_list = memory_sub.add_parser("list", help="list condensed notes, newest first")
+    memory_list.add_argument("--json", action="store_true")
+    memory_search = memory_sub.add_parser("search", help="search condensed notes")
+    memory_search.add_argument("query", nargs="+")
+    memory_search.add_argument("--limit", type=int, default=10)
+    memory_search.add_argument("--json", action="store_true")
+    memory_show = memory_sub.add_parser("show", help="print one note by id")
+    memory_show.add_argument("entry_id")
+    memory_sub.add_parser("index", help="rebuild and print the path of INDEX.md")
     restore = subparsers.add_parser("restore", help="restore a session from local trash")
     restore.add_argument(
         "trash_id",
@@ -434,6 +462,7 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
             short_subagents_only=args.short_subagents_only,
             short_subagent_age=short_subagent_age,
+            **({"condense": False} if args.no_condense else {}),
         )
         if args.json:
             print(json.dumps(_prune_result_to_dict(result), indent=2))
@@ -462,6 +491,31 @@ def main(argv: list[str] | None = None) -> int:
         verb = "Would expire" if args.dry_run else "Expired"
         print(f"{verb} {trash_count} trash entries and {digest_count} digest records.")
         return 0
+
+    if args.command == "condense" and args.all:
+        written, skipped, errors = SessionActionService(config).condense_all(
+            providers=tuple(args.provider) if args.provider else None,
+            older_than=args.older_than,
+            refresh=args.refresh,
+        )
+        print(f"Condensed {len(written)} session(s); skipped {skipped}.")
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        return 1 if errors else 0
+
+    if args.command == "condense":
+        if not args.session:
+            parser.error("condense requires a session id or --all")
+        try:
+            entry = SessionActionService(config).condense(args.session)
+        except SessionActionError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"Condensed ({entry.meta['backend']}): {entry.path}")
+        return 0
+
+    if args.command == "memory":
+        return _run_memory(args, config)
 
     if args.command == "handoff":
         try:
@@ -544,6 +598,35 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.error(f"unknown command: {args.command}")
     return 2
+
+
+def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
+    store = SessionActionService(config).memory_store
+    if args.memory_command == "index":
+        print(store.write_index())
+        return 0
+    if args.memory_command == "show":
+        entry = store.get(args.entry_id)
+        if entry is None:
+            print(f"error: no memory note {args.entry_id!r}", file=sys.stderr)
+            return 1
+        print(entry.path.read_text(encoding="utf-8"), end="")
+        return 0
+    if args.memory_command == "search":
+        hits = store.search(" ".join(args.query), limit=max(1, args.limit))
+        entries = [entry for _score, entry in hits]
+    else:
+        entries = store.entries()
+    if args.json:
+        print(json.dumps([entry.to_dict() for entry in entries], indent=2))
+        return 0
+    for entry in entries:
+        meta = entry.meta
+        print(
+            f"{entry.entry_id}  {meta.get('provider')}  {meta.get('repo')}  "
+            f"{str(meta.get('condensed_at', ''))[:10]}  {entry.title}"
+        )
+    return 0
 
 
 def _write_owner_only(path: Path, payload: str) -> None:
