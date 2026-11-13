@@ -46,6 +46,8 @@ MAX_LLM_INPUT_CHARS = 12_000
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 _FILE_PATH = re.compile(r"(?<![\w/.:@-])(?:\.{0,2}/)?(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9]{1,8}\b")
+_THINK = re.compile(r"<think>.*?(?:</think>|\Z)", re.DOTALL)
+_HEADING = re.compile(r"(?m)^#{1,6}[ \t]+")
 _TOKEN = re.compile(r"[a-z0-9_]{2,}")
 
 
@@ -121,7 +123,7 @@ class OllamaCondenser:
             text = self._generate(_llm_prompt(session, turns))
         except (OSError, ValueError, urllib.error.URLError):
             return base
-        text = text.strip()
+        text = _HEADING.sub("### ", _THINK.sub("", text)).strip()
         if not text:
             return base
         return Condensed(
@@ -133,7 +135,14 @@ class OllamaCondenser:
         )
 
     def _generate(self, prompt: str) -> str:
-        payload = json.dumps({"model": self.model, "prompt": prompt, "stream": False})
+        payload = json.dumps(
+            {
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"num_ctx": 8192, "temperature": 0.2},
+            }
+        )
         request = urllib.request.Request(
             f"{self.base_url}/api/generate",
             data=payload.encode(),

@@ -10,6 +10,7 @@ import re
 import ssl
 import stat
 import sys
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -243,6 +244,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "condense", help="write a shared-memory note for a session without removing it"
     )
     condense.add_argument("session", nargs="?", help="session public id, as shown by `scan --json`")
+    condense.add_argument(
+        "--model",
+        help="summarize with this local Ollama model for this run (loopback URL only)",
+    )
     condense.add_argument("--all", action="store_true", help="backfill every existing session")
     condense.add_argument("--provider", choices=PROVIDERS, action="append", help="limit provider")
     condense.add_argument(
@@ -491,6 +496,14 @@ def main(argv: list[str] | None = None) -> int:
         verb = "Would expire" if args.dry_run else "Expired"
         print(f"{verb} {trash_count} trash entries and {digest_count} digest records.")
         return 0
+
+    if args.command == "condense" and args.model:
+        config = replace(
+            config,
+            condenser="ollama",
+            condenser_model=args.model,
+            condenser_url=config.condenser_url or "http://127.0.0.1:11434",
+        )
 
     if args.command == "condense" and args.all:
         written, skipped, errors = SessionActionService(config).condense_all(
