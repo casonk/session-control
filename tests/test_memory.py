@@ -27,7 +27,9 @@ SECRET = "ghp_" + "a" * 36
 
 def _claude_session(app_config, *, secret=False):
     path = seed_claude(app_config.claude_root)
-    outcome = f"Wrote src/crew/service.py. Token {SECRET}" if secret else "Wrote src/crew/service.py"
+    outcome = (
+        f"Wrote src/crew/service.py. Token {SECRET}" if secret else "Wrote src/crew/service.py"
+    )
     write_jsonl(
         path,
         [
@@ -105,9 +107,11 @@ def test_no_condense_skips_the_note(app_config):
 def test_failure_to_condense_blocks_removal(app_config):
     session = _claude_session(app_config)
     service = SessionActionService(app_config)
-    with mock.patch.object(MemoryStore, "condense", side_effect=OSError("disk full")):
-        with pytest.raises(SessionActionError, match="condense"):
-            service.delete(session.public_id)
+    with (
+        mock.patch.object(MemoryStore, "condense", side_effect=OSError("disk full")),
+        pytest.raises(SessionActionError, match="condense"),
+    ):
+        service.delete(session.public_id)
     assert session.primary_path.exists()
 
 
@@ -198,9 +202,7 @@ def test_web_memory_pages_list_search_and_show(app_config):
     assert "No condensed notes yet" in client.get("/memory").get_data(as_text=True)
 
     entry_id = f"claude-{session.public_id}"
-    response = client.post(
-        f"/sessions/{session.public_id}/condense", data={"csrf_token": "tok"}
-    )
+    response = client.post(f"/sessions/{session.public_id}/condense", data={"csrf_token": "tok"})
     assert response.status_code == 302 and response.headers["Location"].endswith(entry_id)
 
     listing = client.get("/memory").get_data(as_text=True)
