@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ entry.title }} · Session Control</title>
+    <link rel="stylesheet" href="/_portfolio/theme.css">
+    <script src="/_portfolio/theme.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="/_portfolio/chrome.js" defer></script>
+  </head>
+  <body>
+    <main class="shell detail-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">{{ entry.meta.provider }} · {{ entry.meta.repo }} · {{ entry.meta.category }} · condensed {{ entry.meta.condensed_at|datetime }}</p>
+          <h1>{{ entry.title }}</h1>
+        </div>
+        <a class="button ghost" href="{{ url_for('memory') }}">Memory</a>
+      </header>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages" aria-live="polite">
+            {% for category, message in messages %}
+              <div class="message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+      <code class="command large">{{ entry.body }}</code>
+      <p class="meta">Source session {{ entry.meta.session_id }} · {{ entry.meta.backend }} · reason: {{ entry.meta.reason }}. A summary, not a transcript: verify against the repository.</p>
+      <div class="actions">
+        <form method="post" action="{{ url_for('delete_memory_entry', entry_id=entry.entry_id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button danger" type="submit">Delete note</button>
+        </form>
+      </div>
+    </main>
+  </body>
+</html>

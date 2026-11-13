@@ -35,6 +35,7 @@ from session_control.connection_monitor import ConnectionMonitor, targets_from_c
 from session_control.ecu_status import read_status as read_ecu_status
 from session_control.federation import build_inventory, load_inventories, store_inventory
 from session_control.handoff import handoff_targets_for
+from session_control.memory import MemoryStore
 from session_control.models import SessionRecord
 from session_control.scanner import PROVIDERS, SessionScanner
 
@@ -75,6 +76,7 @@ def create_app(
     if app_conn_monitor:
         app_conn_monitor.start()
     app_ecu_reader = ecu_reader or read_ecu_status
+    app_memory = MemoryStore(app_config.resolved_memory_dir)
     app = Flask(__name__)
     app.secret_key = app_config.secret_key
 
@@ -125,6 +127,7 @@ def create_app(
         providers = (selected_provider,) if selected_provider in PROVIDERS else None
         report = app_scanner.scan(providers=providers)
         sessions = _filter_sessions(report.sessions, query, selected_origin)
+        noted = app_memory.ids()
         counts = Counter(session.provider for session in report.sessions)
         return render_template(
             "index.html",
@@ -135,6 +138,7 @@ def create_app(
             selected_provider=selected_provider,
             selected_origin=selected_origin,
             query=query,
+            memory_ids=noted,
             codex_usage=_codex_usage_summary(report.sessions),
             claude_usage=_claude_usage_summary(report.sessions),
             claude_status=app_claude_status.snapshot() if app_claude_status else None,
@@ -158,6 +162,7 @@ def create_app(
             codex_permission_presets=CODEX_PERMISSION_PRESET_CHOICES,
             codex_permission_default=app_config.codex_permission_preset,
             handoff_targets=handoff_targets_for(session_record.provider),
+            memory_entry_id=_memory_id(session_record, app_memory),
         )
 
     app.jinja_env.globals["handoff_targets_for"] = handoff_targets_for
@@ -254,6 +259,49 @@ def create_app(
         if document is None:
             return jsonify({"error": error}), HTTPStatus.SERVICE_UNAVAILABLE
         return jsonify(document)
+
+    @app.get("/memory")
+    def memory():
+        query = request.args.get("q", "").strip()
+        if query:
+            entries = [entry for _score, entry in app_memory.search(query, limit=100)]
+        else:
+            entries = app_memory.entries()
+        return render_template("memory.html", entries=entries, query=query, snippet=_memory_snippet)
+
+    @app.get("/memory/<entry_id>")
+    def memory_entry(entry_id: str):
+        entry = app_memory.get(entry_id)
+        if entry is None:
+            abort(HTTPStatus.NOT_FOUND)
+        return render_template("memory_entry.html", entry=entry, csrf_token=_csrf_token())
+
+    @app.post("/memory/<entry_id>/delete")
+    def delete_memory_entry(entry_id: str):
+        if app_memory.delete(entry_id):
+            flash("Deleted the memory note.", "success")
+        else:
+            flash("Memory note not found.", "error")
+        return redirect(url_for("memory"))
+
+    @app.get("/api/memory")
+    def api_memory():
+        query = request.args.get("q", "").strip()
+        if query:
+            entries = [entry for _score, entry in app_memory.search(query, limit=100)]
+        else:
+            entries = app_memory.entries()
+        return jsonify([entry.to_dict() for entry in entries])
+
+    @app.post("/sessions/<public_id>/condense")
+    def condense_session(public_id: str):
+        try:
+            entry = app_actions.condense(public_id)
+        except SessionActionError as exc:
+            flash(str(exc), "error")
+            return redirect(request.referrer or url_for("index"))
+        flash("Saved a memory note for this session.", "success")
+        return redirect(url_for("memory_entry", entry_id=entry.entry_id))
 
     @app.get("/coverage")
     def coverage():
@@ -423,6 +471,18 @@ def create_app(
         return f"{float(value):.0f}%"
 
     return app
+
+
+def _memory_id(session: SessionRecord, store: MemoryStore) -> str | None:
+    entry_id = f"{session.provider}-{session.public_id}"
+    return entry_id if entry_id in store.ids() else None
+
+
+def _memory_snippet(entry) -> str:
+    """First line of a note's summary, for list rows."""
+    _head, _sep, rest = entry.body.partition("## Summary")
+    text = " ".join((rest or entry.body).split())
+    return text[:220] + (" …" if len(text) > 220 else "")
 
 
 def _local_inventory(scanner: SessionScanner, config: AppConfig) -> dict:

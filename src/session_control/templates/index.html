@@ -18,6 +18,7 @@
           <p>{{ sessions|length }} visible session{{ '' if sessions|length == 1 else 's' }}</p>
         </div>
         <div style="display:flex;gap:8px">
+          <a class="button ghost" href="{{ url_for('memory') }}">Memory</a>
           <a class="button ghost" href="{{ url_for('coverage') }}">Coverage</a>
           <a class="button ghost" href="{{ url_for('federation') }}">All machines</a>
           <a class="button ghost" href="{{ url_for('connections') }}">Connections</a>
@@ -192,6 +193,7 @@
                 {% if item.is_subagent %}<span class="status subagent">subagent</span>{% endif %}
                 {% if item.is_short_subagent %}<span class="status short-subagent">short: review cleanup</span>{% endif %}
                 {% if item.active %}<span class="status active">active</span>{% endif %}
+                {% if (item.provider ~ '-' ~ item.public_id) in memory_ids %}<a class="status local" href="{{ url_for('memory_entry', entry_id=item.provider ~ '-' ~ item.public_id) }}">memory note</a>{% endif %}
               </div>
               <h2><a href="{{ url_for('detail', public_id=item.public_id) }}">{{ item.title }}</a></h2>
               <p class="meta">

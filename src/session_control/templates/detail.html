@@ -121,6 +121,13 @@
             <button class="button" type="submit" title="Starts a new session that reads a summary of this one">Hand off</button>
           </form>
         {% endif %}
+        <form method="post" action="{{ url_for('condense_session', public_id=session.public_id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button" type="submit" title="Save a condensed note to the shared agent memory">{{ 'Refresh memory note' if memory_entry_id else 'Condense to memory' }}</button>
+        </form>
+        {% if memory_entry_id %}
+          <a class="button ghost" href="{{ url_for('memory_entry', entry_id=memory_entry_id) }}">View memory note</a>
+        {% endif %}
         <form method="post" action="{{ url_for('delete_session', public_id=session.public_id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button danger" type="submit" {% if session.active %}disabled{% endif %}>Delete Session</button>

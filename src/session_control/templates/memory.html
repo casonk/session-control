@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shared memory · Session Control</title>
+    <link rel="stylesheet" href="/_portfolio/theme.css">
+    <script src="/_portfolio/theme.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="/_portfolio/chrome.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Shared memory</h1>
+          <p>{{ entries|length }} condensed note{{ '' if entries|length == 1 else 's' }}{% if query %} matching “{{ query }}”{% endif %}</p>
+        </div>
+        <a class="button ghost" href="{{ url_for('index') }}">Sessions</a>
+      </header>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages" aria-live="polite">
+            {% for category, message in messages %}
+              <div class="message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+      <form class="filters" method="get" action="{{ url_for('memory') }}">
+        <label>
+          <span>Search</span>
+          <input name="q" value="{{ query }}" placeholder="topic, repo, file, decision">
+        </label>
+        <button class="button primary" type="submit">Search</button>
+      </form>
+      <section class="session-list" aria-label="Memory notes">
+      {% for entry in entries %}
+        <article class="session note">
+          <div class="session-main">
+            <div class="session-head">
+              <span class="provider {{ entry.meta.provider }}">{{ entry.meta.provider }}</span>
+              <span class="status local">{{ entry.meta.category }}</span>
+            </div>
+            <h2><a href="{{ url_for('memory_entry', entry_id=entry.entry_id) }}">{{ entry.title }}</a></h2>
+            <p class="meta">{{ entry.meta.repo }} · condensed {{ entry.meta.condensed_at|datetime }} · {{ entry.meta.messages }} messages · {{ entry.meta.backend }}</p>
+            <p class="preview">{{ snippet(entry) }}</p>
+          </div>
+        </article>
+      {% else %}
+        <p class="meta">No condensed notes yet. Notes are written automatically before a session is deleted or pruned, or with “Condense to memory” on a session.</p>
+      {% endfor %}
+      </section>
+    </main>
+  </body>
+</html>

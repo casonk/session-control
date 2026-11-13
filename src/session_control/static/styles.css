@@ -294,6 +294,10 @@ select {
   box-shadow: var(--shadow);
 }
 
+.session.note {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .session-main {
   min-width: 0;
 }

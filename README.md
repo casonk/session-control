@@ -153,6 +153,45 @@ Treat the brief as a summary, not a transcript. Any provider can be a source or
 a target; a session is not offered a handoff to its own provider (use the normal
 resume).
 
+## Shared agent memory
+
+Removing a session would otherwise lose what it learned. Before delete, bulk delete,
+`prune` or `terminate-current` moves files to trash, session-control writes a condensed,
+redacted note to `~/.local/share/session-control/memory/` (private, `0700`/`0600`):
+
+```text
+memory/INDEX.md                      one line per note, newest first
+memory/entries/<provider>-<id>.md    summary, opening request, outcome, files mentioned
+```
+
+Any assistant can read these files directly, or query them:
+
+```bash
+session-control memory search "caddy mtls"
+session-control memory list
+session-control memory show claude-<id>
+session-control condense <session-id>      # write a note without removing the session
+session-control condense --all             # backfill notes for existing sessions
+session-control condense --all --older-than 30d --provider claude
+session-control prune --no-condense        # opt out for one run
+```
+
+In the web UI, open **Memory** in the top bar to search and read notes (and delete one),
+or use **Condense to memory** on a session page; sessions that have a note show a
+"memory note" badge in the list.
+
+To share it across agents, add a line to your agent instructions such as: "Before
+starting related work, run `session-control memory search <topic>`; notes are summaries,
+so verify against the repository."
+
+The default condenser is deterministic and offline. For a model-written summary run a
+local Ollama (for example the `crew-chief` service) and set
+`SESSION_CONTROL_CONDENSER=ollama`, `SESSION_CONTROL_CONDENSER_URL=http://127.0.0.1:11434`
+and `SESSION_CONTROL_CONDENSER_MODEL=<model>`. Session text is only ever sent to a loopback
+host, and if the model is unreachable the extractive note is written instead. If a note
+cannot be written, the removal is refused rather than losing the session; set
+`SESSION_CONTROL_CONDENSE_ON_REMOVE=0` to disable. Notes are kept until you delete them.
+
 ## Subagent sessions
 
 The session list marks recognized subagents and provides a **Session origin**

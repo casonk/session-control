@@ -29,6 +29,7 @@ from session_control.handoff import (
     write_brief,
 )
 from session_control.home_profiles import owning_account_home
+from session_control.memory import MemoryStore, build_condenser
 from session_control.models import ScanError, SessionRecord
 from session_control.scanner import SessionScanner
 
@@ -447,6 +448,7 @@ class SessionActionService:
         short_subagents_only: bool = False,
         short_subagent_age: timedelta | None = None,
         now: datetime | None = None,
+        condense: bool = True,
     ) -> PruneResult:
         if older_than <= timedelta(0):
             raise SessionActionError("Prune age must be greater than zero.")
@@ -478,7 +480,7 @@ class SessionActionService:
         if not dry_run:
             for session in eligible:
                 try:
-                    deleted.append(self._delete_session(session, reason="prune"))
+                    deleted.append(self._delete_session(session, reason="prune", condense=condense))
                 except SessionActionError as exc:
                     errors.append(
                         PruneError(provider=session.provider, session=session, message=str(exc))
@@ -496,10 +498,17 @@ class SessionActionService:
         )
 
     def _delete_session(
-        self, session: SessionRecord, *, reason: str = "delete", kill_windows: bool = True
+        self,
+        session: SessionRecord,
+        *,
+        reason: str = "delete",
+        kill_windows: bool = True,
+        condense: bool = True,
     ) -> DeleteResult:
         if session.active:
             raise SessionActionError("Refusing to delete a session that appears to be active.")
+        if condense:
+            self._condense_before_removal(session, reason)
         provider_root = self.config.provider_root(session.provider)
         batch_dir = self._trash_batch_dir(session)
         target_mappings: list[tuple[Path, Path]] = []
@@ -547,6 +556,66 @@ class SessionActionService:
             moved_count=moved,
             killed_window_count=killed_window_count,
         )
+
+    @property
+    def memory_store(self) -> MemoryStore:
+        return MemoryStore(self.config.resolved_memory_dir)
+
+    def condense(self, public_id: str, *, reason: str = "manual"):
+        """Write the shared-memory note for one session without removing it."""
+        session = self._find(public_id)
+        try:
+            return self._condense_session(session, reason)
+        except OSError as exc:
+            raise SessionActionError(f"Could not write the memory note: {exc}") from exc
+
+    def condense_all(
+        self,
+        *,
+        providers: tuple[str, ...] | None = None,
+        older_than: timedelta | None = None,
+        refresh: bool = False,
+    ) -> tuple[list[str], int, list[str]]:
+        """Write notes for existing sessions. Returns (written ids, skipped, errors)."""
+        cutoff = datetime.now(timezone.utc) - older_than if older_than else None
+        have = self.memory_store.ids()
+        written: list[str] = []
+        errors: list[str] = []
+        skipped = 0
+        for session in self.scanner.scan(providers=providers).sessions:
+            entry_id = f"{session.provider}-{session.public_id}"
+            activity = _session_activity_at(session)
+            if (
+                session.active
+                or session.is_short_subagent
+                or (entry_id in have and not refresh)
+                or (cutoff and (activity is None or activity >= cutoff))
+            ):
+                skipped += 1
+                continue
+            try:
+                written.append(self._condense_session(session, "backfill").entry_id)
+            except OSError as exc:
+                errors.append(f"{entry_id}: {exc}")
+        return written, skipped, errors
+
+    def _condense_session(self, session: SessionRecord, reason: str):
+        condenser = build_condenser(
+            self.config.condenser, self.config.condenser_url, self.config.condenser_model
+        )
+        return self.memory_store.condense(session, condenser, reason=reason)
+
+    def _condense_before_removal(self, session: SessionRecord, reason: str) -> None:
+        """Keep a memory note before files move; failure blocks removal, never loses data."""
+        if not self.config.condense_on_remove or session.is_short_subagent:
+            return
+        try:
+            self._condense_session(session, reason)
+        except OSError as exc:
+            raise SessionActionError(
+                f"Could not condense the session before removal ({exc}). "
+                "Fix the memory directory or pass --no-condense."
+            ) from exc
 
     @property
     def digest_store(self) -> DigestStore:
