@@ -22,6 +22,7 @@ from session_control.actions import (
     _kill_tmux_windows_for_session,
     _remove_codex_index_entry,
     _remove_continue_index_entry,
+    _scope_prefix,
 )
 from session_control.scanner import SessionScanner
 from tests.helpers import seed_codex, seed_continue
@@ -55,6 +56,11 @@ class FakeTmux:
 
     def verbs(self) -> list[str]:
         return [call[1] for call in self.calls]
+
+
+@pytest.fixture(autouse=True)
+def _no_scope(monkeypatch):
+    monkeypatch.setattr(actions, "_scope_prefix", lambda: [])
 
 
 @pytest.fixture
@@ -367,3 +373,47 @@ def test_a_missing_continue_index_is_ignored_and_a_corrupt_one_is_an_error(tmp_p
     with pytest.raises(SessionActionError, match="Could not read Continue session index"):
         _remove_continue_index_entry(corrupt, "x")
     assert corrupt.read_text() == "{broken"
+
+
+# ------------------------------------------------------------ tmux server scope
+
+
+def test_a_new_tmux_server_is_started_in_its_own_systemd_scope(monkeypatch, app_config):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    monkeypatch.setattr(actions.shutil, "which", lambda name: "/usr/bin/systemd-run")
+    assert _scope_prefix()[:3] == ["systemd-run", "--user", "--scope"]
+
+    calls: list[list[str]] = []
+
+    def run(args, capture_output=False, **kwargs):
+        calls.append(list(args))
+        code = 1 if args[:2] == ["tmux", "has-session"] else 0
+        return subprocess.CompletedProcess(args, code, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(actions.subprocess, "run", run)
+    monkeypatch.setattr(actions, "_scope_prefix", _scope_prefix)
+    SessionActionService(app_config)._ensure_tmux_session()
+    assert calls[1][:3] == ["systemd-run", "--user", "--scope"]
+    assert calls[1][-5:] == ["tmux", "new-session", "-d", "-s", app_config.tmux_session]
+
+
+def test_scope_is_skipped_without_a_user_manager(monkeypatch):
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    assert _scope_prefix() == []
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    monkeypatch.setattr(actions.shutil, "which", lambda name: None)
+    assert _scope_prefix() == []
+
+
+def test_a_failed_scope_falls_back_to_plain_tmux(monkeypatch, app_config):
+    calls: list[list[str]] = []
+
+    def run(args, capture_output=False, **kwargs):
+        calls.append(list(args))
+        failed = args[0] == "systemd-run" or args[:2] == ["tmux", "has-session"]
+        return subprocess.CompletedProcess(args, 1 if failed else 0, stdout=b"", stderr=b"x")
+
+    monkeypatch.setattr(actions.subprocess, "run", run)
+    monkeypatch.setattr(actions, "_scope_prefix", lambda: ["systemd-run", "--user", "--scope"])
+    SessionActionService(app_config)._ensure_tmux_session()
+    assert calls[-1] == ["tmux", "new-session", "-d", "-s", app_config.tmux_session]

@@ -13,6 +13,24 @@ change how future sessions work in this repo.
 
 ## Lessons
 
+- A process started from the web service lives in that service's cgroup, so
+  `systemctl --user restart session-control-web.service` kills it. A tmux
+  server first created by the Open action took every web-terminal window (and
+  any agent shell running in one) down on a redeploy. Start such long-lived
+  children in their own transient scope (`systemd-run --user --scope`), fall
+  back to plain start when there is no user manager, and check
+  `/proc/<pid>/cgroup` before assuming a restart is safe.
+- Condensing a session must never lose data silently: write the memory note
+  before any file moves, refuse the removal if the note cannot be written, and
+  redact every string (including model output) before it reaches disk. Only
+  send transcript text to a loopback model, and drop `<think>` reasoning blocks
+  from model replies before storing them.
+- Reusing a CSS card class means reusing its structure: `.session` is a
+  three-column grid, so children placed straight into it spread across the
+  columns. Wrap content in `.session-main` or give the variant its own
+  `grid-template-columns`.
+- `git push --force-with-lease` needs an explicit `ref:expected-sha` when
+  pushing by URL (no tracking ref), or it reports "stale info".
 - Grok accounts are separate `GROK_HOME` directories, the same way AGY accounts
   are separate Gemini directories. The registry stays in the default
   `~/.grok/profiles.json`. Do not point `GROK_HOME` at that file's parent when

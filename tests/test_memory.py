@@ -257,3 +257,39 @@ def test_cli_condense_all(app_config, capsys):
         assert "Condensed 1 session(s)" in capsys.readouterr().out
         with pytest.raises(SystemExit):
             cli.main(["condense"])
+
+
+def test_ollama_condenser_drops_reasoning_blocks(app_config):
+    session = _claude_session(app_config)
+    condenser = OllamaCondenser("http://127.0.0.1:11434", "tiny")
+    reply = "<think>plan the answer\nsecretly</think>\n## Goal\n- ship it"
+    with mock.patch.object(condenser, "_generate", return_value=reply):
+        entry = MemoryStore(app_config.trash_dir.parent / "memory").condense(
+            session, condenser, reason="manual"
+        )
+    assert "plan the answer" not in entry.body
+    assert "\n### Goal" in entry.body and "\n## Goal" not in entry.body
+    unfinished = "<think>never closes"
+    with mock.patch.object(condenser, "_generate", return_value=unfinished):
+        entry = MemoryStore(app_config.trash_dir.parent / "memory").condense(
+            session, condenser, reason="manual"
+        )
+    assert entry.meta["backend"] == "extractive"
+
+
+def test_cli_model_flag_selects_the_ollama_condenser_for_one_run(app_config, capsys):
+    _claude_session(app_config)
+    seen = []
+
+    def fake_generate(self, prompt):
+        seen.append(self.model)
+        return "## Goal\n- done"
+
+    with (
+        mock.patch.object(cli.AppConfig, "from_env", return_value=app_config),
+        mock.patch.object(OllamaCondenser, "_generate", fake_generate),
+    ):
+        assert cli.main(["condense", "--all", "--model", "qwen3:14b"]) == 0
+    assert seen == ["qwen3:14b"]
+    entry = SessionActionService(app_config).memory_store.entries()[0]
+    assert entry.meta["backend"] == "ollama:qwen3:14b"

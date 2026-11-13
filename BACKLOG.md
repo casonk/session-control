@@ -11,6 +11,23 @@ and move them to Done.
 
 ## Pending
 
+- [ ] [manual:2026-11-13] Decide whether to enable the Ollama condenser by
+  default (`SESSION_CONTROL_CONDENSER=ollama`, model `qwen3:14b` took ~14s per
+  session in a trial and gave clear Goal/Decisions/State/Open-items notes).
+  Before enabling, make web delete and bulk delete not block on a model call
+  (condense in the background or fall back to the extractive note there), then
+  upgrade existing notes with `session-control condense --all --refresh --model
+  qwen3:14b`.
+- [ ] [manual:2026-11-13] Install a clockwork timer that runs
+  `session-control condense --all` so sessions that are still live (and are
+  never pruned) get notes, and refresh notes for sessions that kept growing.
+- [ ] [manual:2026-11-13] Add retention for memory notes (age or count cap,
+  with a dry run) and a way to merge or drop stale notes for the same
+  workspace.
+- [ ] [manual:2026-11-13] Render note markdown in the web Memory view (it is
+  plain text today); needs a sanitizing renderer since note text is untrusted.
+- [ ] [manual:2026-11-13] Promote the cgroup lesson (service restarts kill
+  child processes) to `traction-control/LESSONSLEARNED.md`.
 - [ ] [manual:2026-10-11] After merging the multi-machine inventory PR,
   deploy the opt-in federation receiver on the server and publisher on each
   approved client. Update both checkouts to `main`; configure the server's

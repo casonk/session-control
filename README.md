@@ -173,6 +173,7 @@ session-control memory show claude-<id>
 session-control condense <session-id>      # write a note without removing the session
 session-control condense --all             # backfill notes for existing sessions
 session-control condense --all --older-than 30d --provider claude
+session-control condense --all --refresh --model qwen3:14b   # upgrade notes with a local model
 session-control prune --no-condense        # opt out for one run
 ```
 
@@ -180,7 +181,9 @@ In the web UI, open **Memory** in the top bar to search and read notes (and dele
 or use **Condense to memory** on a session page; sessions that have a note show a
 "memory note" badge in the list.
 
-To share it across agents, add a line to your agent instructions such as: "Before
+The `skills/session-memory` skill tells agents when and how to search the memory; link it
+into your assistants' skill directories (for example `ln -s "$PWD/skills/session-memory"
+~/.claude/skills/session-memory`). To share it across agents, add a line to your agent instructions such as: "Before
 starting related work, run `session-control memory search <topic>`; notes are summaries,
 so verify against the repository."
 

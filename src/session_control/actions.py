@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import os
 import shlex
 import shutil
 import sqlite3
@@ -658,10 +659,12 @@ class SessionActionService:
         )
         if check.returncode == 0:
             return
-        create = subprocess.run(
-            ["tmux", "new-session", "-d", "-s", self.config.tmux_session],
-            capture_output=True,
-        )
+        command = ["tmux", "new-session", "-d", "-s", self.config.tmux_session]
+        prefix = _scope_prefix()
+        create = subprocess.run([*prefix, *command], capture_output=True)
+        if create.returncode != 0 and prefix:
+            # No usable systemd user manager after all: start tmux the plain way.
+            create = subprocess.run(command, capture_output=True)
         if create.returncode != 0:
             err = create.stderr.decode(errors="replace").strip()
             raise SessionActionError(f"Could not create tmux session: {err}")
@@ -1200,6 +1203,18 @@ def _launch_command(session: SessionRecord, *, codex_permission_preset: str | No
     if profile != "default":
         args = ["codex-profile", "run", "--profile", profile, *args[1:]]
     return _command(session.workspace, args)
+
+
+def _scope_prefix() -> list[str]:
+    """Run a new tmux server in its own systemd scope when a user manager is available.
+
+    A server started from the web service lives in the service's cgroup, so restarting or
+    redeploying the service would kill every terminal window in it. A transient scope
+    outlives the service.
+    """
+    if not os.environ.get("XDG_RUNTIME_DIR") or shutil.which("systemd-run") is None:
+        return []
+    return ["systemd-run", "--user", "--scope", "--quiet", "--collect"]
 
 
 def _command(workspace: str, args: list[str]) -> str:
