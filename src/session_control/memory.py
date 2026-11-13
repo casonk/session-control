@@ -137,17 +137,26 @@ class OllamaCondenser:
         )
 
     def _generate(self, prompt: str) -> str:
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"num_ctx": 8192, "temperature": 0.2},
-            }
-        )
+        try:
+            return self._post(prompt, think=False)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 400:
+                raise
+        # A model without a reasoning mode rejects the flag: ask again without it.
+        return self._post(prompt, think=None)
+
+    def _post(self, prompt: str, *, think: bool | None) -> str:
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_ctx": 8192, "temperature": 0.2},
+        }
+        if think is not None:
+            payload["think"] = think
         request = urllib.request.Request(
             f"{self.base_url}/api/generate",
-            data=payload.encode(),
+            data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310

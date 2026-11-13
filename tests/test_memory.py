@@ -428,3 +428,24 @@ def test_web_note_page_renders_markdown_and_blocks_markup(app_config):
     page = _web(app_config).get(f"/memory/{entry.entry_id}").get_data(as_text=True)
     assert "<strong>bold</strong>" in page and "<h3>Summary</h3>" in page
     assert "<script>alert(1)" not in page and "&lt;script&gt;" in page
+
+
+def test_ollama_asks_for_no_reasoning_and_retries_for_models_without_it():
+    condenser = OllamaCondenser("http://127.0.0.1:11434", "plain")
+    sent = []
+
+    def post(prompt, *, think):
+        sent.append(think)
+        if think is False:
+            raise urllib.error.HTTPError("u", 400, "no thinking", {}, None)
+        return "ok"
+
+    with mock.patch.object(condenser, "_post", post):
+        assert condenser._generate("p") == "ok"
+    assert sent == [False, None]
+
+    def server_error(prompt, *, think):
+        raise urllib.error.HTTPError("u", 500, "boom", {}, None)
+
+    with mock.patch.object(condenser, "_post", server_error), pytest.raises(urllib.error.HTTPError):
+        condenser._generate("p")
