@@ -15,6 +15,9 @@ and move them to Done.
   default policy and a clockwork job once the note count is known to grow.
 - [ ] [manual:2026-11-13] Merge or drop stale notes for the same workspace
   (the per-repo cap only keeps the newest N; it does not combine them).
+- [ ] [manual:2026-11-13] Degrade the `werkzeug` request log (one INFO line per
+  request, including polled pages) to WARNING, or DEBUG for polled endpoints,
+  per the portfolio logging convention. Do it once the journal volume is known.
 
 ## In Progress
 
