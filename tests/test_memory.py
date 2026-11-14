@@ -758,3 +758,39 @@ def test_retention_env_and_cli(app_config, capsys, monkeypatch):
         assert "Task ancient" in capsys.readouterr().out
         assert cli.main(["memory", "search", "--cold", "ancient"]) == 0
         assert "[cold]" in capsys.readouterr().out
+
+
+def test_restore_copies_a_cold_note_back_and_keeps_the_cold_copy(app_config, capsys):
+    from dataclasses import replace
+
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    _aged_note(store, "ancient", "/w/a", "2020-01-01T00:00:00Z")
+    store.expire(note_retention=timedelta(days=30))
+    assert store.get("claude-ancient") is None
+
+    entry = store.restore("claude-ancient")
+    assert entry.path.is_file() and store.get("claude-ancient").meta["workspace"] == "/w/a"
+    assert "claude-ancient" in store.index_path.read_text()
+    assert store.get_cold("claude-ancient") is None  # live now, so not repeated as cold
+    with pytest.raises(MemoryStoreError, match="already live"):
+        store.restore("claude-ancient")
+    with pytest.raises(MemoryStoreError, match="no cold note"):
+        store.restore("claude-missing")
+
+    store.entries_dir.joinpath("claude-ancient.md").unlink()
+    config = replace(app_config, memory_note_retention_days=30)
+    with mock.patch.object(cli.AppConfig, "from_env", return_value=config):
+        assert cli.main(["memory", "restore", "claude-ancient"]) == 0
+        out = capsys.readouterr()
+        assert "Restored claude-ancient" in out.out and "moves it back to cold" in out.err
+        assert cli.main(["memory", "restore", "claude-ancient"]) == 1
+        assert "already live" in capsys.readouterr().err
+
+
+def test_restored_merged_original_is_readable(app_config):
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    for i in range(2):
+        _aged_note(store, f"r{i}", "/w/p", "2026-01-01T00:00:00Z")
+    store.merge_stale(older_than=timedelta(days=1), min_notes=2)
+    entry = store.restore("claude-r0")
+    assert "Task r0" in entry.body and store.get("claude-r0") is not None
