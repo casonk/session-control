@@ -21,6 +21,7 @@ non-loopback host.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -46,6 +47,9 @@ MAX_REQUEST_CHARS = 1500
 MAX_OUTCOME_CHARS = 2000
 MAX_SUMMARY_CHARS = 4000
 MAX_FILES = 15
+MAX_ROLLUP_ITEMS = 100
+MAX_GIST_CHARS = 350
+ROLLUP_PROVIDER = "rollup"
 MAX_LLM_INPUT_CHARS = 12_000
 logger = logging.getLogger(__name__)
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -53,6 +57,7 @@ LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _FILE_PATH = re.compile(r"(?<![\w/.:@-])(?:\.{0,2}/)?(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9]{1,8}\b")
 _THINK = re.compile(r"<think>.*?(?:</think>|\Z)", re.DOTALL)
 _HEADING = re.compile(r"(?m)^#{1,6}[ \t]+")
+_BOILERPLATE = re.compile(r"(?i)^(session notes|notes from .{0,60}|summary)$")
 _TOKEN = re.compile(r"[a-z0-9_]{2,}")
 
 
@@ -190,6 +195,15 @@ def build_condenser(kind: str, url: str | None, model: str | None) -> Condenser:
         except MemoryStoreError:
             return ExtractiveCondenser()
     return ExtractiveCondenser()
+
+
+@dataclass(frozen=True)
+class MergeResult:
+    """One workspace's stale notes folded into a rollup."""
+
+    workspace: str
+    rollup_id: str
+    merged: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -422,6 +436,99 @@ class MemoryStore:
                 self.write_index()
         return list(doomed.values())
 
+    @property
+    def archive_dir(self) -> Path:
+        return self.root / "archive"
+
+    def merged_ids(self) -> set[str]:
+        """Ids of notes folded into a rollup; their sessions are not re-noted by backfills."""
+        if not self.archive_dir.is_dir():
+            return set()
+        return {p.stem for p in self.archive_dir.glob("*.md") if not p.is_symlink()}
+
+    def merge_stale(
+        self,
+        *,
+        older_than: timedelta,
+        min_notes: int = 5,
+        dry_run: bool = False,
+        now: datetime | None = None,
+    ) -> list[MergeResult]:
+        """Fold old per-session notes of one workspace into a single rollup note.
+
+        A workspace qualifies when at least ``min_notes`` of its notes belong to sessions
+        last active before ``now - older_than``. The rollup keeps one short entry per
+        session (date, provider, title, gist, files) and is searchable like any note; the
+        originals move to ``archive/`` instead of being deleted. Re-running adds newly
+        stale notes to the existing rollup.
+        """
+        cutoff = (now or datetime.now(timezone.utc)) - older_than
+        groups: dict[str, list[MemoryEntry]] = {}
+        for entry in self.entries():
+            workspace = str(entry.meta.get("workspace") or "")
+            if (
+                entry.meta.get("provider") == ROLLUP_PROVIDER
+                or not workspace
+                or _entry_activity(entry) >= cutoff
+            ):
+                continue
+            groups.setdefault(workspace, []).append(entry)
+        results: list[MergeResult] = []
+        for workspace, stale in sorted(groups.items()):
+            if len(stale) < max(1, min_notes):
+                continue
+            rollup_id = _rollup_id(workspace)
+            results.append(MergeResult(workspace, rollup_id, tuple(e.entry_id for e in stale)))
+            if not dry_run:
+                self._merge_group(workspace, rollup_id, stale, now=now)
+        return results
+
+    def _merge_group(
+        self,
+        workspace: str,
+        rollup_id: str,
+        stale: list[MemoryEntry],
+        *,
+        now: datetime | None,
+    ) -> None:
+        existing = self._read(self.entries_dir / f"{rollup_id}.md")
+        items: dict[str, dict] = {}
+        if existing is not None:
+            for item in existing.meta.get("items") or []:
+                if isinstance(item, dict) and item.get("id"):
+                    items[str(item["id"])] = item
+        for entry in stale:
+            items[entry.entry_id] = _rollup_item(entry)
+        ordered = sorted(items.values(), key=lambda i: str(i.get("date", "")), reverse=True)
+        kept = ordered[:MAX_ROLLUP_ITEMS]
+        repo = Path(workspace).name or "workspace"
+        dates = [str(i["date"]) for i in ordered if i.get("date")]
+        meta = {
+            "provider": ROLLUP_PROVIDER,
+            "session_id": rollup_id,
+            "title": _line(redact(f"{repo}: {len(ordered)} earlier sessions")[0]),
+            "repo": repo,
+            "workspace": redact(workspace)[0],
+            "created_at": min(dates) if dates else "",
+            "updated_at": max(dates) if dates else "",
+            "condensed_at": (now or datetime.now(timezone.utc)).isoformat(),
+            "messages": sum(int(i.get("messages") or 0) for i in ordered),
+            "category": "rollup",
+            "reason": "merge",
+            "backend": "merge",
+            "items": kept,
+        }
+        body = _render_rollup(meta, kept, omitted=len(ordered) - len(kept))
+        with self._lock:
+            self._write_private(self.entries_dir / f"{rollup_id}.md", _render(meta, body))
+            self.archive_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(self.archive_dir, 0o700)
+            for entry in stale:
+                os.replace(entry.path, self.archive_dir / entry.path.name)
+                self._track_failure(entry.entry_id, "", "")
+            self._write_index()
+        logger.info("merged %d note(s) for %s into %s", len(stale), workspace, rollup_id)
+
     def _write_index(self) -> Path:
         lines = [
             "# Shared agent memory",
@@ -505,6 +612,80 @@ def _llm_prompt(session: SessionRecord, turns: list[Turn]) -> str:
         f"Workspace: {session.workspace or 'unknown'}\n\n"
         f"--- TRANSCRIPT ---\n{transcript}\n--- END ---\n"
     )
+
+
+def _entry_activity(entry: MemoryEntry) -> datetime:
+    """When the session behind a note was last active (falls back to when it was noted)."""
+    for key in ("updated_at", "created_at", "condensed_at"):
+        raw = str(entry.meta.get(key) or "")
+        if not raw:
+            continue
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
+
+
+def _rollup_id(workspace: str) -> str:
+    slug = re.sub(r"[^\w.-]+", "-", Path(workspace).name).strip("-.")[:40] or "workspace"
+    return f"rollup-{slug}-{hashlib.sha1(workspace.encode()).hexdigest()[:8]}"  # noqa: S324
+
+
+def _section(body: str, heading: str) -> str:
+    _head, found, rest = body.partition(f"## {heading}\n")
+    return rest.split("\n## ", 1)[0].strip() if found else ""
+
+
+def _rollup_item(entry: MemoryEntry) -> dict:
+    lines = [
+        re.sub(r"[#*`>]+", " ", raw).strip() for raw in _section(entry.body, "Summary").splitlines()
+    ]
+    gist = " ".join(line for line in lines if line and not _BOILERPLATE.match(line))
+    files = [
+        line.strip()[2:].strip("`")
+        for line in _section(entry.body, "Files mentioned").splitlines()
+        if line.strip().startswith("- ")
+    ][:5]
+    return {
+        "id": entry.entry_id,
+        "date": _entry_activity(entry).date().isoformat(),
+        "provider": str(entry.meta.get("provider", "")),
+        "title": _line(redact(entry.title)[0])[:120],
+        "gist": _clip(_line(redact(gist)[0]), MAX_GIST_CHARS),
+        "files": [redact(f)[0] for f in files],
+        "messages": int(entry.meta.get("messages") or 0),
+    }
+
+
+def _render_rollup(meta: dict, items: list[dict], *, omitted: int) -> str:
+    providers = Counter(str(i.get("provider", "")) for i in items)
+    mix = ", ".join(f"{name} {count}" for name, count in providers.most_common())
+    lines = [
+        f"# {meta['title']}",
+        "",
+        "## Summary",
+        "",
+        f"Rollup of {len(items) + omitted} older sessions in `{meta['workspace']}` "
+        f"({meta['created_at']} to {meta['updated_at']}; {mix}). One line per session; "
+        "the full per-session notes are kept under `archive/`.",
+        "",
+        "## Sessions",
+        "",
+    ]
+    for item in items:
+        gist = f" — {item['gist']}" if item.get("gist") else ""
+        lines.append(f"- **{item['date']}** · {item['provider']} · {item['title']}{gist}")
+    if omitted:
+        lines.append(f"- … {omitted} older session(s) omitted; see `archive/`.")
+    lines.append("")
+    counts: Counter[str] = Counter(f for item in items for f in item.get("files", []))
+    if counts:
+        lines += ["## Files mentioned", ""]
+        lines += [f"- `{path}`" for path, _ in counts.most_common(MAX_FILES)]
+        lines.append("")
+    return "\n".join(lines)
 
 
 def _render_body(meta: dict, condensed: Condensed) -> str:

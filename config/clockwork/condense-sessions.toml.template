@@ -5,6 +5,7 @@ scope = "user"
 service_type = "oneshot"
 working_directory = "__REPO_ROOT__"
 exec_start = "__REPO_ROOT__/.venv/bin/session-control condense --all --stale"
+exec_start_then = "__REPO_ROOT__/.venv/bin/session-control memory merge --older-than 60d --min-notes 5"
 environment = { SESSION_CONTROL_ENV_FILE = "__REPO_ROOT__/config/session-control.env.local" }
 environment_files = ["-__REPO_ROOT__/config/session-control.env.local"]
 syslog_identifier = "session-control"
@@ -20,5 +21,5 @@ randomized_delay_sec = "900"
 
 [jobs.cron]
 expression = "5 4 * * *"
-command = "cd __REPO_ROOT__ && __REPO_ROOT__/.venv/bin/session-control condense --all --stale >> $HOME/.local/share/session-control/condense.log 2>&1"
+command = "cd __REPO_ROOT__ && __REPO_ROOT__/.venv/bin/session-control condense --all --stale && __REPO_ROOT__/.venv/bin/session-control memory merge --older-than 60d --min-notes 5 >> $HOME/.local/share/session-control/condense.log 2>&1"
 comments = ["Auto-generated from systemd timer: *-*-* 04:05:00"]

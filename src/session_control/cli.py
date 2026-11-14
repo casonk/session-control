@@ -297,6 +297,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-per-repo", type=int, help="keep only the newest N notes for each repo"
     )
     memory_prune.add_argument("--dry-run", action="store_true", help="show what would be deleted")
+    memory_merge = memory_sub.add_parser(
+        "merge", help="fold old notes of one workspace into a rollup (originals go to archive/)"
+    )
+    memory_merge.add_argument(
+        "--older-than",
+        type=_parse_duration,
+        default=_parse_duration("60d"),
+        help="only sessions last active longer ago than this (default: 60d)",
+    )
+    memory_merge.add_argument(
+        "--min-notes",
+        type=int,
+        default=5,
+        help="merge a workspace only when this many notes qualify (default: 5)",
+    )
+    memory_merge.add_argument("--dry-run", action="store_true", help="show what would be merged")
     memory_sub.add_parser("failures", help="list notes whose model pass failed")
     memory_sub.add_parser("index", help="rebuild and print the path of INDEX.md")
     restore = subparsers.add_parser("restore", help="restore a session from local trash")
@@ -651,6 +667,19 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
     store = SessionActionService(config).memory_store
+    if args.memory_command == "merge":
+        results = store.merge_stale(
+            older_than=args.older_than, min_notes=args.min_notes, dry_run=args.dry_run
+        )
+        verb = "Would merge" if args.dry_run else "Merged"
+        for result in results:
+            print(
+                f"{verb} {len(result.merged)} note(s) in {result.workspace} -> {result.rollup_id}"
+            )
+        if not results:
+            print("Nothing to merge.")
+        return 0
+
     if args.memory_command == "failures":
         failures = store.failures()
         for entry_id, info in sorted(failures.items()):

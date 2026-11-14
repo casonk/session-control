@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import stat
 import urllib.error
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import pytest
@@ -540,3 +540,100 @@ def test_removal_and_model_fallback_are_logged(app_config, caplog):
     text = caplog.text
     assert "condenser fell back to extraction" in text and "down" in text
     assert f"removed session claude-{session.public_id} reason=delete" in text
+
+
+def _aged_note(store, name, workspace, updated_at, summary="Goal - ship it"):
+    meta = {
+        "provider": "claude",
+        "session_id": name,
+        "title": f"Task {name}",
+        "repo": workspace.rsplit("/", 1)[-1],
+        "workspace": workspace,
+        "updated_at": updated_at,
+        "condensed_at": "2026-11-13T00:00:00+00:00",
+        "messages": 3,
+    }
+    body = f"# Task {name}\n\n## Summary\n\n### Session Notes\n\n{summary}\n\n## Files mentioned\n\n- `src/a.py`\n"
+    store._write_private(store.entries_dir / f"claude-{name}.md", memory._render(meta, body))
+
+
+def test_merge_stale_folds_old_notes_into_a_rollup_and_archives_originals(app_config):
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    for i in range(5):
+        _aged_note(store, f"old{i}", "/w/proj", f"2026-01-0{i + 1}T00:00:00Z")
+    _aged_note(store, "fresh", "/w/proj", "2999-01-01T00:00:00Z")
+    _aged_note(store, "other", "/w/lonely", "2026-01-01T00:00:00Z")
+
+    dry = store.merge_stale(older_than=timedelta(days=30), min_notes=5, dry_run=True)
+    assert len(dry) == 1 and len(dry[0].merged) == 5
+    assert len(store.entries()) == 7  # a dry run changes nothing
+
+    [result] = store.merge_stale(older_than=timedelta(days=30), min_notes=5)
+    ids = {e.entry_id for e in store.entries()}
+    assert ids == {"claude-fresh", "claude-other", result.rollup_id}
+    assert store.merged_ids() == {f"claude-old{i}" for i in range(5)}
+    rollup = store.get(result.rollup_id)
+    assert rollup.meta["provider"] == "rollup" and rollup.meta["updated_at"] == "2026-01-05"
+    assert "Task old4" in rollup.body and "Goal - ship it" in rollup.body
+    assert "Session Notes" not in rollup.body and "`src/a.py`" in rollup.body
+    assert stat.S_IMODE(store.archive_dir.stat().st_mode) == 0o700
+    assert (store.archive_dir / "claude-old0.md").is_file()
+    assert store.search("ship")  # rollups are searchable
+    assert store.merge_stale(older_than=timedelta(days=30), min_notes=5) == []
+
+
+def test_merge_stale_adds_newly_stale_notes_to_the_existing_rollup(app_config):
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    for i in range(3):
+        _aged_note(store, f"a{i}", "/w/proj", "2026-01-01T00:00:00Z")
+    [first] = store.merge_stale(older_than=timedelta(days=30), min_notes=3)
+    for i in range(3):
+        _aged_note(store, f"b{i}", "/w/proj", "2026-02-01T00:00:00Z")
+    [second] = store.merge_stale(older_than=timedelta(days=30), min_notes=3)
+    assert second.rollup_id == first.rollup_id
+    rollup = store.get(first.rollup_id)
+    assert len(rollup.meta["items"]) == 6 and "6 earlier sessions" in rollup.title
+    assert rollup.meta["updated_at"] == "2026-02-01"
+
+
+def test_merge_stale_redacts_and_caps_items(app_config):
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    _aged_note(store, "s", "/w/p", "2026-01-01T00:00:00Z", summary=f"token {SECRET} leaked")
+    store.merge_stale(older_than=timedelta(days=1), min_notes=1)
+    text = next(store.entries_dir.glob("rollup-*.md")).read_text()
+    assert SECRET not in text
+    with mock.patch.object(memory, "MAX_ROLLUP_ITEMS", 2):
+        for i in range(4):
+            _aged_note(store, f"c{i}", "/w/p", f"2026-02-0{i + 1}T00:00:00Z")
+        store.merge_stale(older_than=timedelta(days=1), min_notes=1)
+    rollup = next(e for e in store.entries() if e.meta["provider"] == "rollup")
+    assert len(rollup.meta["items"]) == 2 and "omitted" in rollup.body
+
+
+def test_backfill_does_not_resurrect_merged_notes(app_config):
+    session = _claude_session(app_config)
+    service = SessionActionService(app_config)
+    service.condense_all()
+    store = service.memory_store
+    entry_id = f"claude-{session.public_id}"
+    store.merge_stale(
+        older_than=timedelta(seconds=0),
+        min_notes=1,
+        now=datetime.now(timezone.utc) + timedelta(days=9999),
+    )
+    assert entry_id in store.merged_ids() and entry_id not in store.ids()
+    assert service.condense_all(refresh=True)[0] == []
+    assert entry_id not in store.ids()
+
+
+def test_cli_memory_merge(app_config, capsys):
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    for i in range(2):
+        _aged_note(store, f"x{i}", "/w/proj", "2026-01-01T00:00:00Z")
+    with mock.patch.object(cli.AppConfig, "from_env", return_value=app_config):
+        assert cli.main(["memory", "merge", "--min-notes", "2", "--dry-run"]) == 0
+        assert "Would merge 2 note(s) in /w/proj" in capsys.readouterr().out
+        assert cli.main(["memory", "merge", "--min-notes", "2"]) == 0
+        assert "Merged 2" in capsys.readouterr().out
+        assert cli.main(["memory", "merge", "--min-notes", "2"]) == 0
+        assert "Nothing to merge" in capsys.readouterr().out

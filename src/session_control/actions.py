@@ -626,6 +626,7 @@ class SessionActionService:
         """
         cutoff = datetime.now(timezone.utc) - older_than if older_than else None
         have = self.memory_store.ids()
+        merged = self.memory_store.merged_ids()
         condensed_at = (
             {
                 entry.entry_id: _parse_datetime(str(entry.meta.get("condensed_at", "")))
@@ -642,6 +643,9 @@ class SessionActionService:
         for session in self.scanner.scan(providers=providers).sessions:
             entry_id = f"{session.provider}-{session.public_id}"
             seen.add(entry_id)
+            if entry_id in merged and not failed_only:
+                skipped += 1  # folded into a rollup; --refresh must not resurrect it
+                continue
             activity = _session_activity_at(session)
             if failed_only:
                 if entry_id not in failed or session.active:
