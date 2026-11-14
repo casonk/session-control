@@ -709,11 +709,11 @@ def test_retention_env_and_cli(app_config, capsys, monkeypatch):
     monkeypatch.setenv("SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS", "bad")
     loaded = AppConfig.from_env()
     assert loaded.memory_note_retention_days == 0
-    assert loaded.memory_archive_retention_days == 180
+    assert loaded.memory_archive_retention_days == 30
 
     store = MemoryStore(app_config.trash_dir.parent / "memory")
     _aged_note(store, "ancient", "/w/a", "2020-01-01T00:00:00Z")
-    config = replace(app_config, memory_note_retention_days=730)
+    config = replace(app_config, memory_note_retention_days=180)
     with mock.patch.object(cli.AppConfig, "from_env", return_value=config):
         assert cli.main(["memory", "retention", "--dry-run"]) == 0
         assert "Would remove note claude-ancient" in capsys.readouterr().out

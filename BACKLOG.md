@@ -20,7 +20,7 @@ and move them to Done.
 ## Done
 
 - [x] [manual:2026-11-14] Default memory retention policy (`memory retention`: notes
-  730d, archived originals 180d, daily timer step). Revisit the defaults once
+  180d, archived originals 30d, daily timer step). Revisit the defaults once
   the note count is known to grow.
 - [x] [manual:2026-11-14] Merge stale notes per workspace (`memory merge`, rollup
   notes, originals archived, daily timer step). Follow-ups: an LLM-written
