@@ -1,10 +1,11 @@
 [[jobs]]
 name = "session-control-prune"
-description = "Prune inactive local AI assistant sessions older than __OLDER_THAN__"
+description = "Deduplicate and prune local AI assistant sessions older than __OLDER_THAN__"
 scope = "user"
 service_type = "oneshot"
 working_directory = "__REPO_ROOT__"
-exec_start = "__REPO_ROOT__/.venv/bin/session-control prune --older-than __OLDER_THAN__"
+exec_start = "__REPO_ROOT__/.venv/bin/session-control deduplicate --min-age 50d --max-age __OLDER_THAN__"
+exec_start_then = "__REPO_ROOT__/.venv/bin/session-control prune --older-than __OLDER_THAN__"
 environment = { SESSION_CONTROL_ENV_FILE = "__REPO_ROOT__/config/session-control.env.local" }
 environment_files = ["-__REPO_ROOT__/config/session-control.env.local"]
 syslog_identifier = "session-control"
@@ -20,5 +21,5 @@ randomized_delay_sec = "900"
 
 [jobs.cron]
 expression = "35 3 * * *"
-command = "cd __REPO_ROOT__ && __REPO_ROOT__/.venv/bin/session-control prune --older-than __OLDER_THAN__ >> $HOME/.local/share/session-control/prune.log 2>&1"
+command = "cd __REPO_ROOT__ && __REPO_ROOT__/.venv/bin/session-control deduplicate --min-age 50d --max-age __OLDER_THAN__ && __REPO_ROOT__/.venv/bin/session-control prune --older-than __OLDER_THAN__ >> $HOME/.local/share/session-control/prune.log 2>&1"
 comments = ["Auto-generated from systemd timer: *-*-* 03:35:00"]
