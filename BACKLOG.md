@@ -20,11 +20,11 @@ and move them to Done.
 ## Done
 
 - [x] [manual:2026-11-14] Default memory retention policy (`memory retention`: notes
-  180d, archived originals 30d, daily timer step). Revisit the defaults once
+  180d to a compressed cold store, cold bundles 365d, daily timer step). Revisit the defaults once
   the note count is known to grow.
 - [x] [manual:2026-11-14] Merge stale notes per workspace (`memory merge`, rollup
-  notes, originals archived, daily timer step). Follow-ups: an LLM-written
-  rollup overview, and expiring `archive/` once a retention policy exists.
+  notes, originals moved to the cold store, daily timer step). Follow-up: an
+  LLM-written rollup overview.
 - [x] [manual:2026-11-13] Enable the Ollama condenser (`qwen3:14b`) and make
   the web UI non-blocking: removal writes the extractive note, then a worker
   upgrades it. Existing notes upgraded with `condense --all --refresh`.

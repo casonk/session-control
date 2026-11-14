@@ -287,8 +287,14 @@ def _build_parser() -> argparse.ArgumentParser:
     memory_search.add_argument("query", nargs="+")
     memory_search.add_argument("--limit", type=int, default=10)
     memory_search.add_argument("--json", action="store_true")
+    memory_search.add_argument(
+        "--cold", action="store_true", help="also search the compressed cold store"
+    )
     memory_show = memory_sub.add_parser("show", help="print one note by id")
     memory_show.add_argument("entry_id")
+    memory_show.add_argument(
+        "--cold", action="store_true", help="fall back to the compressed cold store"
+    )
     memory_prune = memory_sub.add_parser("prune", help="delete old or surplus notes")
     memory_prune.add_argument(
         "--older-than", type=_parse_duration, help="notes condensed longer ago than this"
@@ -298,7 +304,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     memory_prune.add_argument("--dry-run", action="store_true", help="show what would be deleted")
     memory_merge = memory_sub.add_parser(
-        "merge", help="fold old notes of one workspace into a rollup (originals go to archive/)"
+        "merge",
+        help="fold old notes of one workspace into a rollup (originals go to the cold store)",
     )
     memory_merge.add_argument(
         "--older-than",
@@ -316,7 +323,7 @@ def _build_parser() -> argparse.ArgumentParser:
     memory_retention = memory_sub.add_parser(
         "retention",
         help="apply the retention policy (SESSION_CONTROL_MEMORY_RETENTION_DAYS, "
-        "SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS)",
+        "SESSION_CONTROL_MEMORY_COLD_RETENTION_DAYS)",
     )
     memory_retention.add_argument("--dry-run", action="store_true", help="show what would go")
     memory_sub.add_parser("failures", help="list notes whose model pass failed")
@@ -675,20 +682,20 @@ def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
     store = SessionActionService(config).memory_store
     if args.memory_command == "retention":
         note_days = config.memory_note_retention_days
-        archive_days = config.memory_archive_retention_days
+        cold_days = config.memory_cold_retention_days
         result = store.expire(
             note_retention=timedelta(days=note_days) if note_days else None,
-            archive_retention=timedelta(days=archive_days) if archive_days else None,
+            cold_retention=timedelta(days=cold_days) if cold_days else None,
             dry_run=args.dry_run,
         )
-        verb = "Would remove" if args.dry_run else "Removed"
+        move, delete = ("Would move", "Would delete") if args.dry_run else ("Moved", "Deleted")
         for entry_id in result.notes:
-            print(f"{verb} note {entry_id}")
-        for entry_id in result.archived:
-            print(f"{verb} archived original {entry_id}")
+            print(f"{move} note {entry_id} to cold storage")
+        for name in result.bundles:
+            print(f"{delete} cold bundle {name}")
         print(
-            f"{verb} {len(result.notes)} note(s), {len(result.archived)} archived original(s), "
-            f"{len(result.failures)} failure record(s)."
+            f"{move} {len(result.notes)} note(s) to cold storage; {delete.lower()} "
+            f"{len(result.bundles)} cold bundle(s); cleared {len(result.failures)} failure record(s)."
         )
         return 0
 
@@ -738,13 +745,18 @@ def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
         return 0
     if args.memory_command == "show":
         entry = store.get(args.entry_id)
-        if entry is None:
-            print(f"error: no memory note {args.entry_id!r}", file=sys.stderr)
+        if entry is not None:
+            print(entry.path.read_text(encoding="utf-8"), end="")
+            return 0
+        cold = store.get_cold(args.entry_id) if args.cold else None
+        if cold is None:
+            hint = "" if args.cold else " (try --cold for expired notes)"
+            print(f"error: no memory note {args.entry_id!r}{hint}", file=sys.stderr)
             return 1
-        print(entry.path.read_text(encoding="utf-8"), end="")
+        print(cold.to_markdown(), end="")
         return 0
     if args.memory_command == "search":
-        hits = store.search(" ".join(args.query), limit=max(1, args.limit))
+        hits = store.search(" ".join(args.query), limit=max(1, args.limit), include_cold=args.cold)
         entries = [entry for _score, entry in hits]
     else:
         entries = store.entries()
@@ -756,6 +768,7 @@ def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
         print(
             f"{entry.entry_id}  {meta.get('provider')}  {meta.get('repo')}  "
             f"{str(meta.get('condensed_at', ''))[:10]}  {entry.title}"
+            f"{'  [cold]' if entry.path.suffix == '.gz' else ''}"
         )
     return 0
 

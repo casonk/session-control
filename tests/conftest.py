@@ -20,7 +20,7 @@ def app_config(tmp_path: Path) -> AppConfig:
         secret_key="test-secret",
         # Fixture sessions carry fixed dates; time-based retention is tested explicitly.
         memory_note_retention_days=0,
-        memory_archive_retention_days=0,
+        memory_cold_retention_days=0,
     )
 
 

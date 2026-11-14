@@ -204,18 +204,22 @@ cannot be written, the removal is refused rather than losing the session; set
 `memory merge` keeps the memory from growing one note per session. A workspace with at least
 `--min-notes` (default 5) notes for sessions idle longer than `--older-than` (default 60d) gets
 one `rollup-<repo>-<hash>` note with a line per session (date, provider, title, gist, files);
-search and the web UI show it like any note. The originals move to `archive/` in the memory
-directory rather than being deleted, and a later `condense --all --refresh` does not recreate
+search and the web UI show it like any note. The originals move to the compressed cold store
+rather than being deleted, and a later `condense --all --refresh` does not recreate
 them. Re-running adds newly stale notes to the same rollup (it keeps the newest 100 entries).
 The daily condense timer runs it after the stale refresh.
 
-**Retention.** `session-control memory retention [--dry-run]` applies the default policy, and the
-same timer runs it last. Notes and rollups expire 180 days after the last activity of the
-session they describe (`SESSION_CONTROL_MEMORY_RETENTION_DAYS`); archived originals expire 30
-days after they were archived (`SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS`). `0` keeps
-them forever. It also drops failure-log entries for notes that no longer exist. A backfill
-never rewrites a note that retention would remove at once, nor one already folded into a rollup,
-so the daily run does not undo itself. `memory prune` remains for one-off, manual cleanup.
+**Retention and the cold store.** `session-control memory retention [--dry-run]` applies the
+default policy, and the same timer runs it last. Nothing is deleted outright: notes and rollups
+whose session was last active over 180 days ago (`SESSION_CONTROL_MEMORY_RETENTION_DAYS`) move
+into a compressed monthly bundle, `cold/cold-YYYY-MM.tar.gz`, which is written and read back
+before the live file is removed. Originals folded into a rollup go to the same bundles. A bundle
+is deleted for good once its whole month is over 365 days old
+(`SESSION_CONTROL_MEMORY_COLD_RETENTION_DAYS`); `0` keeps things forever. The cold store is not
+searched by default; `memory search --cold <topic>` and `memory show --cold <id>` read it.
+Failure-log entries for notes that no longer exist are dropped. A backfill never rewrites a note
+that retention would move at once, nor one already folded into a rollup, so the daily run does
+not undo itself. `memory prune` remains for one-off, manual cleanup (it deletes).
 
 In the web UI a model call never blocks a request: delete, bulk delete and **Condense to
 memory** write the extractive note immediately, then a worker thread upgrades it with the
