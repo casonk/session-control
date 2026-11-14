@@ -36,5 +36,9 @@ def test_timer_templates_share_one_journal_identity():
 def test_condense_template_merges_after_the_refresh():
     text = _text("condense-sessions.toml.template")
     assert "condense --all --stale" in _value(text, "exec_start")
-    assert "memory merge --older-than 60d --min-notes 5" in _value(text, "exec_start_then")
-    assert "memory merge" in _value(text, "command")
+    then = text[text.index("exec_start_then") :].split("]", 1)[0]
+    assert then.index("memory merge --older-than 60d --min-notes 5") < then.index(
+        "memory retention"
+    )
+    cron = _value(text, "command")
+    assert cron.index("memory merge") < cron.index("memory retention")

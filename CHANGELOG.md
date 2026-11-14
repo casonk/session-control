@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a default retention policy for shared-memory notes. `session-control memory retention [--dry-run]` removes notes and rollups whose session was last active more than `SESSION_CONTROL_MEMORY_RETENTION_DAYS` ago (default 730), archived originals more than `SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS` after they were archived (default 180; the age restarts when a note is archived), and failure-log entries for notes that are gone; `0` disables a limit. The daily condense timer runs it after the merge (re-run `scripts/install_condense_timer.sh`). Rollups now remember the ids they cover, so backfills neither recreate notes for merged sessions after their archive expires nor write notes retention would delete again.
+
 - Merge stale notes per workspace. `session-control memory merge [--older-than 60d] [--min-notes 5] [--dry-run]` folds the notes of sessions idle past the cutoff into one `rollup-<repo>-<hash>` note per workspace (a line per session with date, provider, title, gist and files; newest 100 kept), and moves the originals to `archive/` instead of deleting them. Later runs extend the same rollup, and `condense --all --refresh` skips archived sessions so they are not recreated. The daily condense timer template now runs the merge after the stale refresh (re-run `scripts/install_condense_timer.sh` to pick it up).
 
 - Make the prune timer template match what runs on the maintainer's machine: each run now deduplicates sessions (`deduplicate --min-age 50d --max-age <older-than>`) before pruning, as a second `ExecStart` through Clockwork's `exec_start_then`, and the cron fallback chains the same two commands. Re-running `install_prune_timer.sh` no longer drops the deduplicate step.

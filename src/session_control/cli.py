@@ -313,6 +313,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="merge a workspace only when this many notes qualify (default: 5)",
     )
     memory_merge.add_argument("--dry-run", action="store_true", help="show what would be merged")
+    memory_retention = memory_sub.add_parser(
+        "retention",
+        help="apply the retention policy (SESSION_CONTROL_MEMORY_RETENTION_DAYS, "
+        "SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS)",
+    )
+    memory_retention.add_argument("--dry-run", action="store_true", help="show what would go")
     memory_sub.add_parser("failures", help="list notes whose model pass failed")
     memory_sub.add_parser("index", help="rebuild and print the path of INDEX.md")
     restore = subparsers.add_parser("restore", help="restore a session from local trash")
@@ -667,6 +673,25 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
     store = SessionActionService(config).memory_store
+    if args.memory_command == "retention":
+        note_days = config.memory_note_retention_days
+        archive_days = config.memory_archive_retention_days
+        result = store.expire(
+            note_retention=timedelta(days=note_days) if note_days else None,
+            archive_retention=timedelta(days=archive_days) if archive_days else None,
+            dry_run=args.dry_run,
+        )
+        verb = "Would remove" if args.dry_run else "Removed"
+        for entry_id in result.notes:
+            print(f"{verb} note {entry_id}")
+        for entry_id in result.archived:
+            print(f"{verb} archived original {entry_id}")
+        print(
+            f"{verb} {len(result.notes)} note(s), {len(result.archived)} archived original(s), "
+            f"{len(result.failures)} failure record(s)."
+        )
+        return 0
+
     if args.memory_command == "merge":
         results = store.merge_stale(
             older_than=args.older_than, min_notes=args.min_notes, dry_run=args.dry_run

@@ -209,6 +209,14 @@ directory rather than being deleted, and a later `condense --all --refresh` does
 them. Re-running adds newly stale notes to the same rollup (it keeps the newest 100 entries).
 The daily condense timer runs it after the stale refresh.
 
+**Retention.** `session-control memory retention [--dry-run]` applies the default policy, and the
+same timer runs it last. Notes and rollups expire 730 days after the last activity of the
+session they describe (`SESSION_CONTROL_MEMORY_RETENTION_DAYS`); archived originals expire 180
+days after they were archived (`SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS`). `0` keeps
+them forever. It also drops failure-log entries for notes that no longer exist. A backfill
+never rewrites a note that retention would remove at once, nor one already folded into a rollup,
+so the daily run does not undo itself. `memory prune` remains for one-off, manual cleanup.
+
 In the web UI a model call never blocks a request: delete, bulk delete and **Condense to
 memory** write the extractive note immediately, then a worker thread upgrades it with the
 model. The CLI, prune timer and backfill run the model synchronously.

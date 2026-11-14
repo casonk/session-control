@@ -627,6 +627,8 @@ class SessionActionService:
         cutoff = datetime.now(timezone.utc) - older_than if older_than else None
         have = self.memory_store.ids()
         merged = self.memory_store.merged_ids()
+        retention = self.config.memory_note_retention_days
+        expiry = datetime.now(timezone.utc) - timedelta(days=retention) if retention else None
         condensed_at = (
             {
                 entry.entry_id: _parse_datetime(str(entry.meta.get("condensed_at", "")))
@@ -646,6 +648,10 @@ class SessionActionService:
             if entry_id in merged and not failed_only:
                 skipped += 1  # folded into a rollup; --refresh must not resurrect it
                 continue
+            if expiry and not failed_only and (activity := _session_activity_at(session)):
+                if _to_utc(activity) < expiry:
+                    skipped += 1  # retention would delete the note again straight away
+                    continue
             activity = _session_activity_at(session)
             if failed_only:
                 if entry_id not in failed or session.active:

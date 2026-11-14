@@ -637,3 +637,86 @@ def test_cli_memory_merge(app_config, capsys):
         assert "Merged 2" in capsys.readouterr().out
         assert cli.main(["memory", "merge", "--min-notes", "2"]) == 0
         assert "Nothing to merge" in capsys.readouterr().out
+
+
+def test_expire_applies_note_and_archive_retention(app_config):
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    _aged_note(store, "ancient", "/w/a", "2020-01-01T00:00:00Z")
+    _aged_note(store, "recent", "/w/a", "2999-01-01T00:00:00Z")
+    store.archive_dir.mkdir(parents=True)
+    old, new = store.archive_dir / "claude-old.md", store.archive_dir / "claude-new.md"
+    old.write_text("x")
+    new.write_text("x")
+    import os
+    import time
+
+    os.utime(old, (time.time() - 400 * 86400,) * 2)
+    store.record_failure("claude-ancient", "down")
+    store.record_failure("claude-gone", "down")
+
+    keep = timedelta(days=730)
+    dry = store.expire(note_retention=keep, archive_retention=timedelta(days=180), dry_run=True)
+    assert dry.notes == ("claude-ancient",) and dry.archived == ("claude-old",)
+    assert old.exists() and store.get("claude-ancient")
+
+    done = store.expire(note_retention=keep, archive_retention=timedelta(days=180))
+    assert done.failures == ("claude-ancient", "claude-gone")
+    assert store.get("claude-ancient") is None and store.get("claude-recent")
+    assert not old.exists() and new.exists()
+    assert store.failures() == {}
+    assert store.expire(note_retention=None, archive_retention=None).notes == ()
+
+
+def test_archive_age_counts_from_when_it_was_archived(app_config):
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    for i in range(2):
+        _aged_note(store, f"m{i}", "/w/a", "2026-01-01T00:00:00Z")
+    store.merge_stale(older_than=timedelta(days=1), min_notes=2)
+    result = store.expire(note_retention=None, archive_retention=timedelta(days=1))
+    assert result.archived == ()  # just archived, whatever the original note's age
+
+
+def test_expired_archive_does_not_resurrect_notes_through_backfill(app_config):
+    session = _claude_session(app_config)
+    service = SessionActionService(app_config)
+    service.condense_all()
+    store = service.memory_store
+    far = datetime.now(timezone.utc) + timedelta(days=9999)
+    store.merge_stale(older_than=timedelta(seconds=0), min_notes=1, now=far)
+    store.expire(note_retention=None, archive_retention=timedelta(seconds=0), now=far)
+    assert store.merged_ids() >= {f"claude-{session.public_id}"}  # rollup item remembers it
+    assert service.condense_all(refresh=True)[0] == []
+
+
+def test_backfill_skips_sessions_older_than_note_retention(app_config):
+    from dataclasses import replace
+
+    _claude_session(app_config)
+    # retention is shorter than the session's age, so a note would expire again at once
+    config = replace(app_config, memory_note_retention_days=1)
+    old = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    with mock.patch("session_control.actions._session_activity_at", return_value=old):
+        written, skipped, _ = SessionActionService(config).condense_all()
+    assert written == [] and skipped >= 1
+
+
+def test_retention_env_and_cli(app_config, capsys, monkeypatch):
+    from dataclasses import replace
+
+    from session_control.config import AppConfig
+
+    monkeypatch.setenv("SESSION_CONTROL_MEMORY_RETENTION_DAYS", "0")
+    monkeypatch.setenv("SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS", "bad")
+    loaded = AppConfig.from_env()
+    assert loaded.memory_note_retention_days == 0
+    assert loaded.memory_archive_retention_days == 180
+
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    _aged_note(store, "ancient", "/w/a", "2020-01-01T00:00:00Z")
+    config = replace(app_config, memory_note_retention_days=730)
+    with mock.patch.object(cli.AppConfig, "from_env", return_value=config):
+        assert cli.main(["memory", "retention", "--dry-run"]) == 0
+        assert "Would remove note claude-ancient" in capsys.readouterr().out
+        assert cli.main(["memory", "retention"]) == 0
+        assert "Removed 1 note(s)" in capsys.readouterr().out
+    assert store.get("claude-ancient") is None

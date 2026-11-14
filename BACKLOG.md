@@ -11,8 +11,6 @@ and move them to Done.
 
 ## Pending
 
-- [ ] [manual:2026-11-13] Retention is manual (`memory prune`); consider a
-  default policy and a clockwork job once the note count is known to grow.
 - [ ] [manual:2026-11-13] Degrade the `werkzeug` request log (one INFO line per
   request, including polled pages) to WARNING, or DEBUG for polled endpoints,
   per the portfolio logging convention. Do it once the journal volume is known.
@@ -21,6 +19,9 @@ and move them to Done.
 
 ## Done
 
+- [x] [manual:2026-11-14] Default memory retention policy (`memory retention`: notes
+  730d, archived originals 180d, daily timer step). Revisit the defaults once
+  the note count is known to grow.
 - [x] [manual:2026-11-14] Merge stale notes per workspace (`memory merge`, rollup
   notes, originals archived, daily timer step). Follow-ups: an LLM-written
   rollup overview, and expiring `archive/` once a retention policy exists.

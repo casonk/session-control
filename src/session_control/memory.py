@@ -207,6 +207,15 @@ class MergeResult:
 
 
 @dataclass(frozen=True)
+class RetentionResult:
+    """What a retention pass removed (or would remove, on a dry run)."""
+
+    notes: tuple[str, ...]
+    archived: tuple[str, ...]
+    failures: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class MemoryEntry:
     entry_id: str
     meta: dict
@@ -441,10 +450,78 @@ class MemoryStore:
         return self.root / "archive"
 
     def merged_ids(self) -> set[str]:
-        """Ids of notes folded into a rollup; their sessions are not re-noted by backfills."""
-        if not self.archive_dir.is_dir():
-            return set()
-        return {p.stem for p in self.archive_dir.glob("*.md") if not p.is_symlink()}
+        """Ids of notes folded into a rollup; their sessions are not re-noted by backfills.
+
+        Rollup items count too, so expiring an archived original does not make a backfill
+        write that session's note again.
+        """
+        found: set[str] = set()
+        if self.archive_dir.is_dir():
+            found.update(p.stem for p in self.archive_dir.glob("*.md") if not p.is_symlink())
+        for entry in self.entries():
+            if entry.meta.get("provider") == ROLLUP_PROVIDER:
+                found.update(
+                    str(i["id"]) for i in entry.meta.get("items") or [] if isinstance(i, dict)
+                )
+        return found
+
+    def expire(
+        self,
+        *,
+        note_retention: timedelta | None = None,
+        archive_retention: timedelta | None = None,
+        dry_run: bool = False,
+        now: datetime | None = None,
+    ) -> RetentionResult:
+        """Apply the retention policy: age out notes and rollups, then archived originals.
+
+        A note's age is the last activity of the session it describes (a rollup's is its
+        newest session). An archived original's age is the time since it was archived.
+        Failure records for notes that no longer exist are dropped. ``None`` skips a limit.
+        """
+        moment = now or datetime.now(timezone.utc)
+        notes = [
+            e
+            for e in self.entries()
+            if note_retention is not None and _entry_activity(e) < moment - note_retention
+        ]
+        archived: list[Path] = []
+        if archive_retention is not None and self.archive_dir.is_dir():
+            cutoff = (moment - archive_retention).timestamp()
+            archived = [
+                p
+                for p in self.archive_dir.glob("*.md")
+                if not p.is_symlink() and p.stat().st_mtime < cutoff
+            ]
+        doomed = {e.entry_id for e in notes}
+        stale_failures = tuple(
+            sorted(
+                key
+                for key in self.failures()
+                if key in doomed or not (self.entries_dir / f"{key}.md").exists()
+            )
+        )
+        if not dry_run:
+            with self._lock:
+                for entry in notes:
+                    entry.path.unlink(missing_ok=True)
+                for path in archived:
+                    path.unlink(missing_ok=True)
+                for key in stale_failures:
+                    self._track_failure(key, "", "")
+                if notes:
+                    self._write_index()
+            logger.info(
+                "retention removed %d note(s), %d archived original(s), %d failure record(s)",
+                len(notes),
+                len(archived),
+                len(stale_failures),
+            )
+        return RetentionResult(
+            tuple(sorted(e.entry_id for e in notes)),
+            tuple(sorted(p.stem for p in archived)),
+            stale_failures,
+        )
 
     def merge_stale(
         self,
@@ -524,7 +601,9 @@ class MemoryStore:
             self.archive_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             os.chmod(self.archive_dir, 0o700)
             for entry in stale:
-                os.replace(entry.path, self.archive_dir / entry.path.name)
+                archived = self.archive_dir / entry.path.name
+                os.replace(entry.path, archived)
+                os.utime(archived)  # archive age counts from now, not from the note's write
                 self._track_failure(entry.entry_id, "", "")
             self._write_index()
         logger.info("merged %d note(s) for %s into %s", len(stale), workspace, rollup_id)
