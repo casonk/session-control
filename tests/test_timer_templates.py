@@ -31,3 +31,10 @@ def test_prune_template_deduplicates_then_prunes():
 def test_timer_templates_share_one_journal_identity():
     for name in ("prune-sessions.toml.template", "condense-sessions.toml.template"):
         assert _value(_text(name), "syslog_identifier") == "session-control"
+
+
+def test_condense_template_merges_after_the_refresh():
+    text = _text("condense-sessions.toml.template")
+    assert "condense --all --stale" in _value(text, "exec_start")
+    assert "memory merge --older-than 60d --min-notes 5" in _value(text, "exec_start_then")
+    assert "memory merge" in _value(text, "command")

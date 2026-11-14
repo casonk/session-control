@@ -177,6 +177,7 @@ session-control condense --all --refresh --model qwen3:14b   # upgrade notes wit
 session-control condense --all --stale     # also refresh notes whose session changed
 session-control memory failures            # notes whose model pass failed
 session-control condense --failed          # redo only those
+session-control memory merge --older-than 60d --dry-run   # fold old notes per workspace
 session-control memory prune --older-than 365d --dry-run
 session-control memory prune --max-per-repo 50
 session-control prune --no-condense        # opt out for one run
@@ -199,6 +200,14 @@ and `SESSION_CONTROL_CONDENSER_MODEL=<model>`. Session text is only ever sent to
 host, and if the model is unreachable the extractive note is written instead. If a note
 cannot be written, the removal is refused rather than losing the session; set
 `SESSION_CONTROL_CONDENSE_ON_REMOVE=0` to disable. Notes are kept until you delete them (`memory prune` removes old or surplus ones).
+
+`memory merge` keeps the memory from growing one note per session. A workspace with at least
+`--min-notes` (default 5) notes for sessions idle longer than `--older-than` (default 60d) gets
+one `rollup-<repo>-<hash>` note with a line per session (date, provider, title, gist, files);
+search and the web UI show it like any note. The originals move to `archive/` in the memory
+directory rather than being deleted, and a later `condense --all --refresh` does not recreate
+them. Re-running adds newly stale notes to the same rollup (it keeps the newest 100 entries).
+The daily condense timer runs it after the stale refresh.
 
 In the web UI a model call never blocks a request: delete, bulk delete and **Condense to
 memory** write the extractive note immediately, then a worker thread upgrades it with the
