@@ -18,6 +18,7 @@ Type=simple
 WorkingDirectory=$ROOT
 Environment=SESSION_CONTROL_ENV_FILE=$ENV_FILE
 ExecStart=$ROOT/.venv/bin/session-control web
+SyslogIdentifier=session-control
 Restart=on-failure
 RestartForceExitStatus=SIGTERM
 RestartSec=5

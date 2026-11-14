@@ -262,6 +262,21 @@ adds a launch-time dropdown with these presets:
 Set `SESSION_CONTROL_CODEX_PERMISSION_PRESET` to choose the default dropdown
 selection for web-launched Codex resumes.
 
+## Logging
+
+The web service, CLI and timers log to stderr, which systemd sends to the journal:
+
+```bash
+journalctl --user -t session-control -f             # follow
+journalctl --user -t session-control -p warning     # warnings and errors only
+session-control --log-level debug scan               # more detail for one command
+```
+
+Set `SESSION_CONTROL_LOG_LEVEL` (`debug`, `info`, `warning`, `error`) in the env file for the
+service. Records are redacted before they are written, and carry ids and counts rather than
+session content. Failed model condensations are also kept as a retry list (`memory failures`).
+Re-run `scripts/install_web_service.sh` once to add the journal identifier to an existing unit.
+
 ## Provider Format Diagnostics
 
 Session Control probes the local formats it understands while scanning. If a

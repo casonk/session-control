@@ -35,3 +35,15 @@ def _no_systemd_scope(monkeypatch):
     from session_control import actions
 
     monkeypatch.setattr(actions, "_scope_prefix", lambda: [])
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_logging():
+    """cli.main installs a stderr handler on the root logger; keep it out of other tests."""
+    import logging
+
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    yield
+    root.handlers[:] = handlers
+    root.setLevel(level)

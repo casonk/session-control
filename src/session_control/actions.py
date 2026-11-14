@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import logging
 import os
 import shlex
 import shutil
@@ -34,6 +35,8 @@ from session_control.home_profiles import owning_account_home
 from session_control.memory import ExtractiveCondenser, MemoryStore, build_condenser
 from session_control.models import ScanError, SessionRecord
 from session_control.scanner import SessionScanner
+
+logger = logging.getLogger(__name__)
 
 
 class SessionActionError(RuntimeError):
@@ -498,6 +501,13 @@ class SessionActionService:
                         PruneError(provider=session.provider, session=session, message=str(exc))
                     )
 
+        logger.info(
+            "prune: %d eligible, %d removed, %d errors%s",
+            len(eligible),
+            len(deleted),
+            len(errors),
+            " (dry run)" if dry_run else "",
+        )
         return PruneResult(
             cutoff=cutoff,
             dry_run=dry_run,
@@ -518,6 +528,9 @@ class SessionActionService:
         condense: bool = True,
     ) -> DeleteResult:
         if session.active:
+            logger.warning(
+                "refused to remove active session %s-%s", session.provider, session.public_id
+            )
             raise SessionActionError("Refusing to delete a session that appears to be active.")
         if condense:
             self._condense_before_removal(session, reason)
@@ -559,9 +572,23 @@ class SessionActionService:
             _remove_provider_index_entry(session, provider_root, provider_metadata)
             self.digest_store.record(session, reason=reason)
         except OSError as exc:
+            logger.error(
+                "removal of %s-%s failed after moving %d file(s): %s",
+                session.provider,
+                session.public_id,
+                moved,
+                exc,
+            )
             raise SessionActionError(f"Could not finish session removal: {exc}") from exc
         finally:
             self._invalidate_scan_cache()
+        logger.info(
+            "removed session %s-%s reason=%s files=%d",
+            session.provider,
+            session.public_id,
+            reason,
+            moved,
+        )
         return DeleteResult(
             session=session,
             moved_to=batch_dir,
@@ -631,7 +658,11 @@ class SessionActionService:
             try:
                 written.append(self._condense_session(session, "backfill").entry_id)
             except OSError as exc:
+                logger.error("condense %s failed: %s", entry_id, exc)
                 errors.append(f"{entry_id}: {exc}")
+        logger.info(
+            "condense_all: %d written, %d skipped, %d errors", len(written), skipped, len(errors)
+        )
         if failed_only and providers is None:
             for gone in sorted(failed - seen):
                 self.memory_store.clear_failure(gone)
@@ -670,6 +701,12 @@ class SessionActionService:
         try:
             self._write_note(session, reason)
         except OSError as exc:
+            logger.error(
+                "condensation before removal failed for %s-%s: %s",
+                session.provider,
+                session.public_id,
+                exc,
+            )
             raise SessionActionError(
                 f"Could not condense the session before removal ({exc}). "
                 "Fix the memory directory or pass --no-condense."

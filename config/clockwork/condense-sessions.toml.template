@@ -7,6 +7,7 @@ working_directory = "__REPO_ROOT__"
 exec_start = "__REPO_ROOT__/.venv/bin/session-control condense --all --stale"
 environment = { SESSION_CONTROL_ENV_FILE = "__REPO_ROOT__/config/session-control.env.local" }
 environment_files = ["-__REPO_ROOT__/config/session-control.env.local"]
+syslog_identifier = "session-control"
 standard_output = "journal"
 standard_error = "journal"
 timer_description = "Run session-control daily shared-memory condensation"
