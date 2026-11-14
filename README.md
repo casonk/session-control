@@ -273,7 +273,14 @@ session-control --log-level debug scan               # more detail for one comma
 ```
 
 Set `SESSION_CONTROL_LOG_LEVEL` (`debug`, `info`, `warning`, `error`) in the env file for the
-service. Records are redacted before they are written, and carry ids and counts rather than
+service.
+
+Where there is no journal, a rotating log file (5 MB, 3 backups, owner-only) is written as well:
+`SESSION_CONTROL_LOG_FILE` or `--log-file` takes a path, `default` or `off`. Unset, it is on for
+macOS and Windows and off on Linux. Default locations: `~/.local/state/session-control/` (Linux,
+or `$XDG_STATE_HOME`), `~/Library/Logs/session-control/` (macOS),
+`%LOCALAPPDATA%\session-control\Logs\` (Windows). If a timer and the web service share the file
+and rotation is blocked (Windows holds open files), logging continues in the current file. Records are redacted before they are written, and carry ids and counts rather than
 session content. Failed model condensations are also kept as a retry list (`memory failures`).
 Re-run `scripts/install_web_service.sh` once to add the journal identifier to an existing unit.
 

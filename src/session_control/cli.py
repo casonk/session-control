@@ -148,6 +148,12 @@ def _relative_short_subagent_age(
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="session-control")
     parser.add_argument(
+        "--log-file",
+        metavar="PATH|default|off",
+        help="also log to a rotating file (default: SESSION_CONTROL_LOG_FILE; on by "
+        "default only on macOS and Windows)",
+    )
+    parser.add_argument(
         "--log-level",
         choices=["debug", "info", "warning", "error", "critical"],
         help="log verbosity on stderr (default: SESSION_CONTROL_LOG_LEVEL or info)",
@@ -387,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
     _load_default_env()
     parser = _build_parser()
     args = parser.parse_args(argv)
-    configure_logging(args.log_level)
+    configure_logging(args.log_level, args.log_file)
     config = AppConfig.from_env()
 
     if args.command in {None, "web"}:

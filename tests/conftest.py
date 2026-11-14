@@ -38,12 +38,19 @@ def _no_systemd_scope(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _restore_root_logging():
-    """cli.main installs a stderr handler on the root logger; keep it out of other tests."""
+def _restore_root_logging(monkeypatch):
+    """cli.main installs log handlers on the root logger; keep them out of other tests.
+
+    The log file is switched off so macOS and Windows runs never write to a real profile.
+    """
     import logging
 
+    monkeypatch.setenv("SESSION_CONTROL_LOG_FILE", "off")
     root = logging.getLogger()
     handlers, level = list(root.handlers), root.level
     yield
+    for handler in root.handlers:
+        if handler not in handlers:
+            handler.close()
     root.handlers[:] = handlers
     root.setLevel(level)
