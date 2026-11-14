@@ -49,6 +49,8 @@ class AppConfig:
     web_chat_dir: Path | None = None
     memory_dir: Path | None = None
     condense_on_remove: bool = True
+    memory_note_retention_days: int = 180
+    memory_archive_retention_days: int = 30
     condenser: str = "extractive"
     condenser_url: str | None = None
     condenser_model: str | None = None
@@ -122,6 +124,10 @@ class AppConfig:
                 home / ".local" / "share" / "session-control" / "memory",
             ),
             condense_on_remove=_bool_env("SESSION_CONTROL_CONDENSE_ON_REMOVE", True),
+            memory_note_retention_days=_days_env("SESSION_CONTROL_MEMORY_RETENTION_DAYS", 180),
+            memory_archive_retention_days=_days_env(
+                "SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS", 30
+            ),
             condenser=(os.environ.get("SESSION_CONTROL_CONDENSER") or "extractive").lower(),
             condenser_url=os.environ.get("SESSION_CONTROL_CONDENSER_URL") or None,
             condenser_model=os.environ.get("SESSION_CONTROL_CONDENSER_MODEL") or None,
@@ -185,6 +191,17 @@ def _bool_env(name: str, default: bool) -> bool:
 
 def _truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _days_env(name: str, default: int) -> int:
+    """Whole days; 0 turns the limit off, and a bad value falls back to the default."""
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return default
 
 
 def _int_env(name: str, default: int) -> int:
