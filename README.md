@@ -175,6 +175,8 @@ session-control condense --all             # backfill notes for existing session
 session-control condense --all --older-than 30d --provider claude
 session-control condense --all --refresh --model qwen3:14b   # upgrade notes with a local model
 session-control condense --all --stale     # also refresh notes whose session changed
+session-control memory failures            # notes whose model pass failed
+session-control condense --failed          # redo only those
 session-control memory prune --older-than 365d --dry-run
 session-control memory prune --max-per-repo 50
 session-control prune --no-condense        # opt out for one run

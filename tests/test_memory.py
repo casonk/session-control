@@ -449,3 +449,80 @@ def test_ollama_asks_for_no_reasoning_and_retries_for_models_without_it():
 
     with mock.patch.object(condenser, "_post", server_error), pytest.raises(urllib.error.HTTPError):
         condenser._generate("p")
+
+
+def test_model_failure_is_logged_and_cleared_on_success(app_config):
+    session = _claude_session(app_config)
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    condenser = OllamaCondenser("http://127.0.0.1:1", "tiny")
+    entry_id = f"claude-{session.public_id}"
+    with mock.patch.object(condenser, "_generate", side_effect=urllib.error.URLError("down")):
+        store.condense(session, condenser, reason="manual")
+        store.condense(session, condenser, reason="manual")
+    failure = store.failures()[entry_id]
+    assert failure["attempts"] == 2 and "down" in failure["error"]
+    assert stat.S_IMODE(store.failures_path.stat().st_mode) == 0o600
+    with mock.patch.object(condenser, "_generate", return_value="- ok"):
+        store.condense(session, condenser, reason="manual")
+    assert store.failures() == {}
+
+
+def test_failure_log_redacts_and_empty_response_counts(app_config):
+    session = _claude_session(app_config)
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    condenser = OllamaCondenser("http://127.0.0.1:1", "tiny")
+    with mock.patch.object(condenser, "_generate", return_value="<think>x</think>"):
+        store.condense(session, condenser, reason="manual")
+    assert "empty" in next(iter(store.failures().values()))["error"]
+    store.record_failure("claude-x", f"boom {SECRET}")
+    assert SECRET not in store.failures_path.read_text()
+
+
+def test_deferred_upgrade_failure_is_logged(app_config):
+    session = _claude_session(app_config)
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    slow = OllamaCondenser("http://127.0.0.1:1", "tiny")
+    jobs = []
+    with mock.patch.object(slow, "_generate", side_effect=OSError("timed out")):
+        store.condense_deferred(
+            session, ExtractiveCondenser(), slow, reason="manual", submit=jobs.append
+        )
+        assert store.failures() == {}
+        jobs[0]()
+    assert "timed out" in store.failures()[f"claude-{session.public_id}"]["error"]
+
+
+def test_condense_failed_retries_only_logged_sessions(app_config, capsys):
+    from dataclasses import replace
+
+    session = _claude_session(app_config)
+    config = replace(
+        app_config,
+        condenser="ollama",
+        condenser_url="http://127.0.0.1:1",
+        condenser_model="tiny",
+    )
+    service = SessionActionService(config)
+    entry_id = f"claude-{session.public_id}"
+    with mock.patch.object(OllamaCondenser, "_generate", side_effect=OSError("down")):
+        service.condense_all()
+    assert entry_id in service.memory_store.failures()
+    service.memory_store.record_failure("claude-gone", "old")
+
+    with mock.patch.object(OllamaCondenser, "_generate", return_value="- fixed"):
+        written, _, errors = service.condense_all(failed_only=True)
+    assert written == [entry_id] and errors == []
+    assert service.memory_store.failures() == {}  # fixed and the vanished session dropped
+    assert service.condense_all(failed_only=True)[0] == []  # nothing left to retry
+
+
+def test_cli_memory_failures_and_failed_flag(app_config, capsys):
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    with mock.patch.object(cli.AppConfig, "from_env", return_value=app_config):
+        assert cli.main(["memory", "failures"]) == 0
+        assert "No failed condensations" in capsys.readouterr().out
+        store.record_failure("claude-abc", "URLError: down")
+        assert cli.main(["memory", "failures"]) == 0
+        assert "claude-abc" in capsys.readouterr().out
+        assert cli.main(["condense", "--failed"]) == 0
+        assert "Condensed 0 session(s)" in capsys.readouterr().out
