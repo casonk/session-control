@@ -648,10 +648,10 @@ class SessionActionService:
             if entry_id in merged and not failed_only:
                 skipped += 1  # folded into a rollup; --refresh must not resurrect it
                 continue
-            if expiry and not failed_only and (activity := _session_activity_at(session)):
-                if _to_utc(activity) < expiry:
-                    skipped += 1  # retention would delete the note again straight away
-                    continue
+            seen_at = _session_activity_at(session)
+            if expiry and not failed_only and seen_at and _to_utc(seen_at) < expiry:
+                skipped += 1  # retention would delete the note again straight away
+                continue
             activity = _session_activity_at(session)
             if failed_only:
                 if entry_id not in failed or session.active:
