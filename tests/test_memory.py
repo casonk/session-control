@@ -557,7 +557,11 @@ def _aged_note(store, name, workspace, updated_at, summary="Goal - ship it"):
     store._write_private(store.entries_dir / f"claude-{name}.md", memory._render(meta, body))
 
 
-def test_merge_stale_folds_old_notes_into_a_rollup_and_archives_originals(app_config):
+def rollup_meta_ids(store, rollup_id):
+    return store.get(rollup_id).meta["merged_from"]
+
+
+def test_merge_stale_folds_old_notes_into_a_rollup_and_moves_originals_to_cold_storage(app_config):
     store = MemoryStore(app_config.trash_dir.parent / "memory")
     for i in range(5):
         _aged_note(store, f"old{i}", "/w/proj", f"2026-01-0{i + 1}T00:00:00Z")
@@ -572,12 +576,15 @@ def test_merge_stale_folds_old_notes_into_a_rollup_and_archives_originals(app_co
     ids = {e.entry_id for e in store.entries()}
     assert ids == {"claude-fresh", "claude-other", result.rollup_id}
     assert store.merged_ids() == {f"claude-old{i}" for i in range(5)}
+    assert set(rollup_meta_ids(store, result.rollup_id)) == store.merged_ids()
     rollup = store.get(result.rollup_id)
     assert rollup.meta["provider"] == "rollup" and rollup.meta["updated_at"] == "2026-01-05"
     assert "Task old4" in rollup.body and "Goal - ship it" in rollup.body
     assert "Session Notes" not in rollup.body and "`src/a.py`" in rollup.body
-    assert stat.S_IMODE(store.archive_dir.stat().st_mode) == 0o700
-    assert (store.archive_dir / "claude-old0.md").is_file()
+    assert stat.S_IMODE(store.cold_dir.stat().st_mode) == 0o700
+    cold = store.get_cold("claude-old0")
+    assert cold is not None and "Task old0" in cold.body
+    assert "claude-old0" not in {e.entry_id for e in store.entries()}
     assert store.search("ship")  # rollups are searchable
     assert store.merge_stale(older_than=timedelta(days=30), min_notes=5) == []
 
@@ -639,52 +646,76 @@ def test_cli_memory_merge(app_config, capsys):
         assert "Nothing to merge" in capsys.readouterr().out
 
 
-def test_expire_applies_note_and_archive_retention(app_config):
+def test_expire_moves_notes_to_cold_storage_then_deletes_old_bundles(app_config):
+    from session_control import memory_cold
+
     store = MemoryStore(app_config.trash_dir.parent / "memory")
     _aged_note(store, "ancient", "/w/a", "2020-01-01T00:00:00Z")
     _aged_note(store, "recent", "/w/a", "2999-01-01T00:00:00Z")
-    store.archive_dir.mkdir(parents=True)
-    old, new = store.archive_dir / "claude-old.md", store.archive_dir / "claude-new.md"
-    old.write_text("x")
-    new.write_text("x")
-    import os
-    import time
-
-    os.utime(old, (time.time() - 400 * 86400,) * 2)
     store.record_failure("claude-ancient", "down")
     store.record_failure("claude-gone", "down")
+    june = datetime(2026, 6, 15, tzinfo=timezone.utc)
+    memory_cold.append(store.cold_dir, june, {"merged/claude-old.md": b"---\n---\nx"})
 
     keep = timedelta(days=730)
-    dry = store.expire(note_retention=keep, archive_retention=timedelta(days=180), dry_run=True)
-    assert dry.notes == ("claude-ancient",) and dry.archived == ("claude-old",)
-    assert old.exists() and store.get("claude-ancient")
+    now = datetime(2026, 11, 14, tzinfo=timezone.utc)
+    dry = store.expire(
+        note_retention=keep, cold_retention=timedelta(days=100), dry_run=True, now=now
+    )
+    assert dry.notes == ("claude-ancient",) and dry.bundles == ("cold-2026-06.tar.gz",)
+    assert store.get("claude-ancient") and (store.cold_dir / "cold-2026-06.tar.gz").exists()
 
-    done = store.expire(note_retention=keep, archive_retention=timedelta(days=180))
-    assert done.failures == ("claude-ancient", "claude-gone")
+    done = store.expire(note_retention=keep, cold_retention=timedelta(days=100), now=now)
+    assert done.failures == ("claude-ancient", "claude-gone") and store.failures() == {}
     assert store.get("claude-ancient") is None and store.get("claude-recent")
-    assert not old.exists() and new.exists()
-    assert store.failures() == {}
-    assert store.expire(note_retention=None, archive_retention=None).notes == ()
+    assert not (store.cold_dir / "cold-2026-06.tar.gz").exists()  # whole month past 100 days
+    cold = store.get_cold("claude-ancient")
+    assert cold is not None and cold.meta["workspace"] == "/w/a"
+    assert [e.entry_id for _s, e in store.search("ancient", include_cold=True)] == [
+        "claude-ancient"
+    ]
+    assert store.search("ancient") == []  # cold notes are opt-in
+    assert store.expire(note_retention=None, cold_retention=None).notes == ()
 
 
-def test_archive_age_counts_from_when_it_was_archived(app_config):
+def test_cold_bundle_is_private_verified_and_rewrites_atomically(app_config):
+    import tarfile
+
+    from session_control import memory_cold
+
+    directory = app_config.trash_dir.parent / "cold"
+    moment = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    path = memory_cold.append(directory, moment, {"entries/a.md": b"one"})
+    memory_cold.append(directory, moment, {"entries/b.md": b"two", "entries/a.md": b"uno"})
+    assert memory_cold.read_bundle(path) == {"entries/a.md": b"uno", "entries/b.md": b"two"}
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert not list(directory.glob(".*.tmp"))
+    with pytest.raises(ValueError):
+        memory_cold.append(directory, moment, {"../escape.md": b"x"})
+    path.write_bytes(b"not a tarball")
+    assert memory_cold.read_bundle(path) == {}  # a damaged bundle reads as empty, never raises
+    assert tarfile.is_tarfile(path) is False
+
+
+def test_failed_cold_write_keeps_the_live_note(app_config):
     store = MemoryStore(app_config.trash_dir.parent / "memory")
-    for i in range(2):
-        _aged_note(store, f"m{i}", "/w/a", "2026-01-01T00:00:00Z")
-    store.merge_stale(older_than=timedelta(days=1), min_notes=2)
-    result = store.expire(note_retention=None, archive_retention=timedelta(days=1))
-    assert result.archived == ()  # just archived, whatever the original note's age
+    _aged_note(store, "ancient", "/w/a", "2020-01-01T00:00:00Z")
+    with (
+        mock.patch("session_control.memory_cold.append", side_effect=OSError("disk full")),
+        pytest.raises(OSError),
+    ):
+        store.expire(note_retention=timedelta(days=30))
+    assert store.get("claude-ancient") is not None
 
 
-def test_expired_archive_does_not_resurrect_notes_through_backfill(app_config):
+def test_cold_store_does_not_resurrect_notes_through_backfill(app_config):
     session = _claude_session(app_config)
     service = SessionActionService(app_config)
     service.condense_all()
     store = service.memory_store
     far = datetime.now(timezone.utc) + timedelta(days=9999)
     store.merge_stale(older_than=timedelta(seconds=0), min_notes=1, now=far)
-    store.expire(note_retention=None, archive_retention=timedelta(seconds=0), now=far)
-    assert store.merged_ids() >= {f"claude-{session.public_id}"}  # rollup item remembers it
+    assert store.merged_ids() >= {f"claude-{session.public_id}"}
     assert service.condense_all(refresh=True)[0] == []
 
 
@@ -706,17 +737,24 @@ def test_retention_env_and_cli(app_config, capsys, monkeypatch):
     from session_control.config import AppConfig
 
     monkeypatch.setenv("SESSION_CONTROL_MEMORY_RETENTION_DAYS", "0")
-    monkeypatch.setenv("SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS", "bad")
+    monkeypatch.setenv("SESSION_CONTROL_MEMORY_COLD_RETENTION_DAYS", "bad")
     loaded = AppConfig.from_env()
     assert loaded.memory_note_retention_days == 0
-    assert loaded.memory_archive_retention_days == 30
+    assert loaded.memory_cold_retention_days == 365
 
     store = MemoryStore(app_config.trash_dir.parent / "memory")
     _aged_note(store, "ancient", "/w/a", "2020-01-01T00:00:00Z")
     config = replace(app_config, memory_note_retention_days=180)
     with mock.patch.object(cli.AppConfig, "from_env", return_value=config):
         assert cli.main(["memory", "retention", "--dry-run"]) == 0
-        assert "Would remove note claude-ancient" in capsys.readouterr().out
+        assert "Would move note claude-ancient to cold storage" in capsys.readouterr().out
         assert cli.main(["memory", "retention"]) == 0
-        assert "Removed 1 note(s)" in capsys.readouterr().out
+        assert "Moved 1 note(s) to cold storage" in capsys.readouterr().out
     assert store.get("claude-ancient") is None
+    with mock.patch.object(cli.AppConfig, "from_env", return_value=config):
+        assert cli.main(["memory", "show", "claude-ancient"]) == 1
+        assert "--cold" in capsys.readouterr().err
+        assert cli.main(["memory", "show", "--cold", "claude-ancient"]) == 0
+        assert "Task ancient" in capsys.readouterr().out
+        assert cli.main(["memory", "search", "--cold", "ancient"]) == 0
+        assert "[cold]" in capsys.readouterr().out

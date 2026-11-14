@@ -25,7 +25,8 @@ session-control memory show <entry-id>                     # full note
 Notes live in `~/.local/share/session-control/memory/` (`INDEX.md` lists them all) and
 are also browsable in the session-control web UI under **Memory**. Older notes for one
 workspace are folded into a `rollup-<repo>-…` note (one line per session); the full
-per-session notes sit in `archive/` next to `entries/` if a rollup line is not enough.
+per-session notes are in the compressed cold store; read them with
+`session-control memory search --cold <topic>` and `session-control memory show --cold <id>`.
 
 ## Rules
 

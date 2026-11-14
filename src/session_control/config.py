@@ -50,7 +50,7 @@ class AppConfig:
     memory_dir: Path | None = None
     condense_on_remove: bool = True
     memory_note_retention_days: int = 180
-    memory_archive_retention_days: int = 30
+    memory_cold_retention_days: int = 365
     condenser: str = "extractive"
     condenser_url: str | None = None
     condenser_model: str | None = None
@@ -125,9 +125,7 @@ class AppConfig:
             ),
             condense_on_remove=_bool_env("SESSION_CONTROL_CONDENSE_ON_REMOVE", True),
             memory_note_retention_days=_days_env("SESSION_CONTROL_MEMORY_RETENTION_DAYS", 180),
-            memory_archive_retention_days=_days_env(
-                "SESSION_CONTROL_MEMORY_ARCHIVE_RETENTION_DAYS", 30
-            ),
+            memory_cold_retention_days=_days_env("SESSION_CONTROL_MEMORY_COLD_RETENTION_DAYS", 365),
             condenser=(os.environ.get("SESSION_CONTROL_CONDENSER") or "extractive").lower(),
             condenser_url=os.environ.get("SESSION_CONTROL_CONDENSER_URL") or None,
             condenser_model=os.environ.get("SESSION_CONTROL_CONDENSER_MODEL") or None,

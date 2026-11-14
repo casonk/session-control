@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlparse
 
+from session_control import memory_cold
 from session_control.digests import category_for
 from session_control.handoff import Turn, recent_turns
 from session_control.models import SessionRecord
@@ -210,8 +211,8 @@ class MergeResult:
 class RetentionResult:
     """What a retention pass removed (or would remove, on a dry run)."""
 
-    notes: tuple[str, ...]
-    archived: tuple[str, ...]
+    notes: tuple[str, ...]  # moved to the cold store
+    bundles: tuple[str, ...]  # cold bundles deleted for good
     failures: tuple[str, ...]
 
 
@@ -225,6 +226,10 @@ class MemoryEntry:
     @property
     def title(self) -> str:
         return str(self.meta.get("title") or self.entry_id)
+
+    def to_markdown(self) -> str:
+        """The note as stored on disk (front matter and body)."""
+        return _render(self.meta, self.body)
 
     def to_dict(self) -> dict:
         return {"id": self.entry_id, **self.meta, "body": self.body}
@@ -392,12 +397,15 @@ class MemoryStore:
         self.write_index()
         return True
 
-    def search(self, query: str, *, limit: int = 10) -> list[tuple[int, MemoryEntry]]:
+    def search(
+        self, query: str, *, limit: int = 10, include_cold: bool = False
+    ) -> list[tuple[int, MemoryEntry]]:
         terms = _TOKEN.findall(query.lower())
         if not terms:
             return []
         scored: list[tuple[int, MemoryEntry]] = []
-        for entry in self.entries():
+        pool = self.entries() + (self.cold_entries() if include_cold else [])
+        for entry in pool:
             title = entry.title.lower()
             repo = str(entry.meta.get("repo", "")).lower()
             body = entry.body.lower()
@@ -446,38 +454,54 @@ class MemoryStore:
         return list(doomed.values())
 
     @property
-    def archive_dir(self) -> Path:
-        return self.root / "archive"
+    def cold_dir(self) -> Path:
+        return self.root / "cold"
 
     def merged_ids(self) -> set[str]:
-        """Ids of notes folded into a rollup; their sessions are not re-noted by backfills.
-
-        Rollup items count too, so expiring an archived original does not make a backfill
-        write that session's note again.
-        """
+        """Ids of notes folded into a rollup; their sessions are not re-noted by backfills."""
         found: set[str] = set()
-        if self.archive_dir.is_dir():
-            found.update(p.stem for p in self.archive_dir.glob("*.md") if not p.is_symlink())
         for entry in self.entries():
             if entry.meta.get("provider") == ROLLUP_PROVIDER:
+                found.update(str(i) for i in entry.meta.get("merged_from") or [])
                 found.update(
                     str(i["id"]) for i in entry.meta.get("items") or [] if isinstance(i, dict)
                 )
         return found
 
+    def cold_entries(self) -> list[MemoryEntry]:
+        """Notes in the cold store, newest bundle first; a live note is not repeated."""
+        live = self.ids()
+        found: dict[str, MemoryEntry] = {}
+        for path in reversed(memory_cold.bundles(self.cold_dir)):
+            for name, data in sorted(memory_cold.read_bundle(path).items(), reverse=True):
+                entry_id = name.split("/", 1)[1][: -len(".md")]
+                if entry_id in live or entry_id in found:
+                    continue
+                meta, body = _parse(data.decode("utf-8", errors="replace"))
+                if meta:
+                    found[entry_id] = MemoryEntry(entry_id, meta, body, path)
+        return list(found.values())
+
+    def get_cold(self, entry_id: str) -> MemoryEntry | None:
+        if not re.fullmatch(r"[\w.-]+", entry_id or ""):
+            return None
+        return next((e for e in self.cold_entries() if e.entry_id == entry_id), None)
+
     def expire(
         self,
         *,
         note_retention: timedelta | None = None,
-        archive_retention: timedelta | None = None,
+        cold_retention: timedelta | None = None,
         dry_run: bool = False,
         now: datetime | None = None,
     ) -> RetentionResult:
-        """Apply the retention policy: age out notes and rollups, then archived originals.
+        """Apply the retention policy.
 
-        A note's age is the last activity of the session it describes (a rollup's is its
-        newest session). An archived original's age is the time since it was archived.
-        Failure records for notes that no longer exist are dropped. ``None`` skips a limit.
+        Notes and rollups whose session was last active before ``now - note_retention`` move
+        into the compressed cold store (written and verified before the live file goes).
+        Cold bundles whose whole month is older than ``cold_retention`` are then deleted for
+        good. Failure records for notes that no longer exist are dropped. ``None`` skips a
+        limit.
         """
         moment = now or datetime.now(timezone.utc)
         notes = [
@@ -485,14 +509,6 @@ class MemoryStore:
             for e in self.entries()
             if note_retention is not None and _entry_activity(e) < moment - note_retention
         ]
-        archived: list[Path] = []
-        if archive_retention is not None and self.archive_dir.is_dir():
-            cutoff = (moment - archive_retention).timestamp()
-            archived = [
-                p
-                for p in self.archive_dir.glob("*.md")
-                if not p.is_symlink() and p.stat().st_mtime < cutoff
-            ]
         doomed = {e.entry_id for e in notes}
         stale_failures = tuple(
             sorted(
@@ -501,25 +517,37 @@ class MemoryStore:
                 if key in doomed or not (self.entries_dir / f"{key}.md").exists()
             )
         )
+        expired_bundles: list[Path] = []
+        if cold_retention is not None:
+            expired_bundles = memory_cold.expire(
+                self.cold_dir, cold_retention, now=moment, dry_run=True
+            )
         if not dry_run:
             with self._lock:
-                for entry in notes:
-                    entry.path.unlink(missing_ok=True)
-                for path in archived:
-                    path.unlink(missing_ok=True)
+                if notes:
+                    memory_cold.append(
+                        self.cold_dir,
+                        moment,
+                        {f"entries/{e.entry_id}.md": e.path.read_bytes() for e in notes},
+                    )
+                    for entry in notes:
+                        entry.path.unlink(missing_ok=True)
+                if cold_retention is not None:
+                    memory_cold.expire(self.cold_dir, cold_retention, now=moment)
                 for key in stale_failures:
                     self._track_failure(key, "", "")
                 if notes:
                     self._write_index()
             logger.info(
-                "retention removed %d note(s), %d archived original(s), %d failure record(s)",
+                "retention moved %d note(s) to cold storage, deleted %d cold bundle(s), "
+                "cleared %d failure record(s)",
                 len(notes),
-                len(archived),
+                len(expired_bundles),
                 len(stale_failures),
             )
         return RetentionResult(
             tuple(sorted(e.entry_id for e in notes)),
-            tuple(sorted(p.stem for p in archived)),
+            tuple(p.name for p in expired_bundles),
             stale_failures,
         )
 
@@ -536,7 +564,7 @@ class MemoryStore:
         A workspace qualifies when at least ``min_notes`` of its notes belong to sessions
         last active before ``now - older_than``. The rollup keeps one short entry per
         session (date, provider, title, gist, files) and is searchable like any note; the
-        originals move to ``archive/`` instead of being deleted. Re-running adds newly
+        originals move to the compressed cold store instead of being deleted. Re-running adds newly
         stale notes to the existing rollup.
         """
         cutoff = (now or datetime.now(timezone.utc)) - older_than
@@ -576,6 +604,8 @@ class MemoryStore:
                     items[str(item["id"])] = item
         for entry in stale:
             items[entry.entry_id] = _rollup_item(entry)
+        prior = set(existing.meta.get("merged_from") or []) if existing else set()
+        merged_from = sorted({str(i) for i in prior} | set(items))
         ordered = sorted(items.values(), key=lambda i: str(i.get("date", "")), reverse=True)
         kept = ordered[:MAX_ROLLUP_ITEMS]
         repo = Path(workspace).name or "workspace"
@@ -593,17 +623,19 @@ class MemoryStore:
             "category": "rollup",
             "reason": "merge",
             "backend": "merge",
+            "merged_from": merged_from,
             "items": kept,
         }
         body = _render_rollup(meta, kept, omitted=len(ordered) - len(kept))
         with self._lock:
             self._write_private(self.entries_dir / f"{rollup_id}.md", _render(meta, body))
-            self.archive_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-            os.chmod(self.archive_dir, 0o700)
+            memory_cold.append(
+                self.cold_dir,
+                now or datetime.now(timezone.utc),
+                {f"merged/{e.entry_id}.md": e.path.read_bytes() for e in stale},
+            )
             for entry in stale:
-                archived = self.archive_dir / entry.path.name
-                os.replace(entry.path, archived)
-                os.utime(archived)  # archive age counts from now, not from the note's write
+                entry.path.unlink(missing_ok=True)
                 self._track_failure(entry.entry_id, "", "")
             self._write_index()
         logger.info("merged %d note(s) for %s into %s", len(stale), workspace, rollup_id)
@@ -748,7 +780,7 @@ def _render_rollup(meta: dict, items: list[dict], *, omitted: int) -> str:
         "",
         f"Rollup of {len(items) + omitted} older sessions in `{meta['workspace']}` "
         f"({meta['created_at']} to {meta['updated_at']}; {mix}). One line per session; "
-        "the full per-session notes are kept under `archive/`.",
+        "the full per-session notes are kept in the cold store (`memory show --cold`).",
         "",
         "## Sessions",
         "",
@@ -757,7 +789,7 @@ def _render_rollup(meta: dict, items: list[dict], *, omitted: int) -> str:
         gist = f" — {item['gist']}" if item.get("gist") else ""
         lines.append(f"- **{item['date']}** · {item['provider']} · {item['title']}{gist}")
     if omitted:
-        lines.append(f"- … {omitted} older session(s) omitted; see `archive/`.")
+        lines.append(f"- … {omitted} older session(s) omitted; see the cold store.")
     lines.append("")
     counts: Counter[str] = Counter(f for item in items for f in item.get("files", []))
     if counts:
