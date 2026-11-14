@@ -20,6 +20,7 @@ non-loopback host.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -28,7 +29,7 @@ import urllib.error
 import urllib.request
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Protocol
@@ -66,6 +67,7 @@ class Condensed:
     outcome: str
     files: tuple[str, ...]
     backend: str
+    error: str = ""  # why a model condenser fell back to extraction; empty on success
 
 
 class Condenser(Protocol):
@@ -123,11 +125,11 @@ class OllamaCondenser:
             return base
         try:
             text = self._generate(_llm_prompt(session, turns))
-        except (OSError, ValueError, urllib.error.URLError):
-            return base
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            return replace(base, error=f"{type(exc).__name__}: {exc}")
         text = _HEADING.sub("### ", _THINK.sub("", text)).strip()
         if not text:
-            return base
+            return replace(base, error="empty model response")
         return Condensed(
             summary=_clip(text, MAX_SUMMARY_CHARS),
             request=base.request,
@@ -254,6 +256,7 @@ class MemoryStore:
         with self._lock:
             self._write_private(target, _render(meta, body))
             self._write_index()
+            self._track_failure(entry_id, condensed.error, reason)
         return MemoryEntry(entry_id, meta, body, target)
 
     def condense_deferred(
@@ -278,13 +281,57 @@ class MemoryStore:
             try:
                 upgraded = slow.condense(session, turns)
                 if upgraded.backend == fast.name:
+                    with self._lock:
+                        self._track_failure(entry.entry_id, upgraded.error, reason)
                     return
                 self.condense(session, _Fixed(upgraded), reason=reason, turns=turns)
-            except Exception:  # noqa: BLE001 - a background upgrade must never raise
-                return
+            except Exception as exc:  # noqa: BLE001 - a background upgrade must never raise
+                with contextlib.suppress(Exception):
+                    self.record_failure(entry.entry_id, f"{type(exc).__name__}: {exc}", reason)
 
         submit(upgrade)
         return entry
+
+    @property
+    def failures_path(self) -> Path:
+        return self.root / "failures.json"
+
+    def failures(self) -> dict[str, dict]:
+        """Notes whose model pass failed, keyed by entry id (the note is extractive)."""
+        try:
+            data = json.loads(self.failures_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return (
+            {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+        )
+
+    def record_failure(self, entry_id: str, error: str, reason: str = "") -> None:
+        with self._lock:
+            self._track_failure(entry_id, error, reason)
+
+    def clear_failure(self, entry_id: str) -> None:
+        with self._lock:
+            self._track_failure(entry_id, "", "")
+
+    def _track_failure(self, entry_id: str, error: str, reason: str) -> None:
+        """Add or clear one failure record; callers hold the lock."""
+        failures = self.failures()
+        if error:
+            previous = failures.get(entry_id, {})
+            failures[entry_id] = {
+                "error": _clip(_line(redact(error)[0]), 300),
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+                "reason": reason,
+                "attempts": int(previous.get("attempts", 0)) + 1,
+            }
+        elif entry_id in failures:
+            del failures[entry_id]
+        else:
+            return
+        self._write_private(
+            self.failures_path, json.dumps(failures, indent=2, sort_keys=True) + "\n"
+        )
 
     def entries(self) -> list[MemoryEntry]:
         found: list[MemoryEntry] = []
@@ -313,6 +360,7 @@ class MemoryStore:
             return False
         with self._lock:
             (self.entries_dir / f"{entry_id}.md").unlink(missing_ok=True)
+            self._track_failure(entry_id, "", "")
         self.write_index()
         return True
 

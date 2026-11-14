@@ -588,11 +588,14 @@ class SessionActionService:
         older_than: timedelta | None = None,
         refresh: bool = False,
         stale_only: bool = False,
+        failed_only: bool = False,
     ) -> tuple[list[str], int, list[str]]:
         """Write notes for existing sessions. Returns (written ids, skipped, errors).
 
         Existing notes are kept unless ``refresh`` rewrites them all or ``stale_only``
         rewrites those whose session has changed since the note was written.
+        ``failed_only`` redoes just the notes in the failure log; entries whose session
+        is gone cannot be retried and are dropped from the log (the note stays).
         """
         cutoff = datetime.now(timezone.utc) - older_than if older_than else None
         have = self.memory_store.ids()
@@ -607,10 +610,17 @@ class SessionActionService:
         written: list[str] = []
         errors: list[str] = []
         skipped = 0
+        failed = set(self.memory_store.failures()) if failed_only else set()
+        seen: set[str] = set()
         for session in self.scanner.scan(providers=providers).sessions:
             entry_id = f"{session.provider}-{session.public_id}"
+            seen.add(entry_id)
             activity = _session_activity_at(session)
-            if (
+            if failed_only:
+                if entry_id not in failed or session.active:
+                    skipped += 1
+                    continue
+            elif (
                 session.active
                 or session.is_short_subagent
                 or (entry_id in have and not refresh and not _is_stale(session, condensed_at))
@@ -622,6 +632,9 @@ class SessionActionService:
                 written.append(self._condense_session(session, "backfill").entry_id)
             except OSError as exc:
                 errors.append(f"{entry_id}: {exc}")
+        if failed_only and providers is None:
+            for gone in sorted(failed - seen):
+                self.memory_store.clear_failure(gone)
         return written, skipped, errors
 
     def _condenser(self):

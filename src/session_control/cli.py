@@ -261,6 +261,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="with --all, also rewrite notes whose session changed since the note was written",
     )
+    condense.add_argument(
+        "--failed",
+        action="store_true",
+        help="with --all, redo only notes whose model pass failed (see `memory failures`)",
+    )
     memory = subparsers.add_parser("memory", help="read the shared agent memory")
     memory_sub = memory.add_subparsers(dest="memory_command", required=True)
     memory_list = memory_sub.add_parser("list", help="list condensed notes, newest first")
@@ -279,6 +284,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-per-repo", type=int, help="keep only the newest N notes for each repo"
     )
     memory_prune.add_argument("--dry-run", action="store_true", help="show what would be deleted")
+    memory_sub.add_parser("failures", help="list notes whose model pass failed")
     memory_sub.add_parser("index", help="rebuild and print the path of INDEX.md")
     restore = subparsers.add_parser("restore", help="restore a session from local trash")
     restore.add_argument(
@@ -518,12 +524,13 @@ def main(argv: list[str] | None = None) -> int:
             condenser_url=config.condenser_url or "http://127.0.0.1:11434",
         )
 
-    if args.command == "condense" and args.all:
+    if args.command == "condense" and (args.all or args.failed):
         written, skipped, errors = SessionActionService(config).condense_all(
             providers=tuple(args.provider) if args.provider else None,
             older_than=args.older_than,
             refresh=args.refresh,
             stale_only=args.stale,
+            failed_only=args.failed,
         )
         print(f"Condensed {len(written)} session(s); skipped {skipped}.")
         for error in errors:
@@ -629,6 +636,19 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
     store = SessionActionService(config).memory_store
+    if args.memory_command == "failures":
+        failures = store.failures()
+        for entry_id, info in sorted(failures.items()):
+            print(
+                f"{entry_id}  x{info.get('attempts', 1)}  "
+                f"{str(info.get('failed_at', ''))[:19]}  {info.get('error', '')}"
+            )
+        if not failures:
+            print("No failed condensations.")
+        else:
+            print("Retry with: session-control condense --all --failed", file=sys.stderr)
+        return 0
+
     if args.memory_command == "index":
         print(store.write_index())
         return 0
