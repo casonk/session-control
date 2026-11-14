@@ -23,11 +23,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import urllib.error
 import urllib.request
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlparse
@@ -135,17 +137,26 @@ class OllamaCondenser:
         )
 
     def _generate(self, prompt: str) -> str:
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"num_ctx": 8192, "temperature": 0.2},
-            }
-        )
+        try:
+            return self._post(prompt, think=False)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 400:
+                raise
+        # A model without a reasoning mode rejects the flag: ask again without it.
+        return self._post(prompt, think=None)
+
+    def _post(self, prompt: str, *, think: bool | None) -> str:
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_ctx": 8192, "temperature": 0.2},
+        }
+        if think is not None:
+            payload["think"] = think
         request = urllib.request.Request(
             f"{self.base_url}/api/generate",
-            data=payload.encode(),
+            data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
@@ -154,6 +165,17 @@ class OllamaCondenser:
         if not isinstance(value, str):
             raise ValueError("unexpected condenser response")
         return value
+
+
+class _Fixed:
+    """Adapter that hands an already-computed result back through the Condenser API."""
+
+    def __init__(self, result: Condensed):
+        self.name = result.backend
+        self._result = result
+
+    def condense(self, session: SessionRecord, turns: list[Turn]) -> Condensed:
+        return self._result
 
 
 def build_condenser(kind: str, url: str | None, model: str | None) -> Condenser:
@@ -184,6 +206,7 @@ class MemoryEntry:
 class MemoryStore:
     def __init__(self, root: Path):
         self.root = root
+        self._lock = threading.Lock()
 
     @property
     def entries_dir(self) -> Path:
@@ -193,6 +216,10 @@ class MemoryStore:
     def index_path(self) -> Path:
         return self.root / "INDEX.md"
 
+    def read_turns(self, session: SessionRecord) -> list[Turn]:
+        """Redacted conversation turns, read once so a slow condenser can run later."""
+        return _redact_turns(recent_turns(session, limit=MAX_TURNS_READ))
+
     def condense(
         self,
         session: SessionRecord,
@@ -200,10 +227,12 @@ class MemoryStore:
         *,
         reason: str,
         now: datetime | None = None,
+        turns: list[Turn] | None = None,
     ) -> MemoryEntry:
         """Write (or refresh) the note for ``session`` and return it."""
-        turns = recent_turns(session, limit=MAX_TURNS_READ)
-        condensed = condenser.condense(session, _redact_turns(turns))
+        if turns is None:
+            turns = self.read_turns(session)
+        condensed = condenser.condense(session, turns)
         entry_id = f"{session.provider}-{session.public_id}"
         repo = Path(session.workspace).name if session.workspace else ""
         meta = {
@@ -221,9 +250,40 @@ class MemoryStore:
             "backend": condensed.backend,
         }
         body = _render_body(meta, condensed)
-        self._write_private(self.entries_dir / f"{entry_id}.md", _render(meta, body))
-        entry = MemoryEntry(entry_id, meta, body, self.entries_dir / f"{entry_id}.md")
-        self.write_index()
+        target = self.entries_dir / f"{entry_id}.md"
+        with self._lock:
+            self._write_private(target, _render(meta, body))
+            self._write_index()
+        return MemoryEntry(entry_id, meta, body, target)
+
+    def condense_deferred(
+        self,
+        session: SessionRecord,
+        fast: Condenser,
+        slow: Condenser,
+        *,
+        reason: str,
+        submit: Callable[[Callable[[], object]], object],
+    ) -> MemoryEntry:
+        """Write the fast note now, then upgrade it with ``slow`` through ``submit``.
+
+        The transcript is read once, here, because removal is about to move it away.
+        If the slow condenser fails or only reproduces the extractive result, the fast
+        note simply stays.
+        """
+        turns = self.read_turns(session)
+        entry = self.condense(session, fast, reason=reason, turns=turns)
+
+        def upgrade() -> None:
+            try:
+                upgraded = slow.condense(session, turns)
+                if upgraded.backend == fast.name:
+                    return
+                self.condense(session, _Fixed(upgraded), reason=reason, turns=turns)
+            except Exception:  # noqa: BLE001 - a background upgrade must never raise
+                return
+
+        submit(upgrade)
         return entry
 
     def entries(self) -> list[MemoryEntry]:
@@ -251,7 +311,8 @@ class MemoryStore:
     def delete(self, entry_id: str) -> bool:
         if self.get(entry_id) is None:
             return False
-        (self.entries_dir / f"{entry_id}.md").unlink()
+        with self._lock:
+            (self.entries_dir / f"{entry_id}.md").unlink(missing_ok=True)
         self.write_index()
         return True
 
@@ -271,6 +332,44 @@ class MemoryStore:
         return scored[:limit]
 
     def write_index(self) -> Path:
+        with self._lock:
+            return self._write_index()
+
+    def rotate(
+        self,
+        *,
+        older_than: timedelta | None = None,
+        max_per_repo: int | None = None,
+        dry_run: bool = False,
+    ) -> list[MemoryEntry]:
+        """Drop notes older than ``older_than`` and/or beyond the newest ``max_per_repo``.
+
+        Age is the time a note was condensed, not a file mtime. Returns what was (or, on a
+        dry run, would be) removed.
+        """
+        entries = self.entries()
+        doomed: dict[str, MemoryEntry] = {}
+        if older_than is not None:
+            cutoff = (datetime.now(timezone.utc) - older_than).isoformat()
+            for entry in entries:
+                if str(entry.meta.get("condensed_at", "")) < cutoff:
+                    doomed[entry.entry_id] = entry
+        if max_per_repo is not None:
+            seen: Counter[str] = Counter()
+            for entry in entries:  # newest first
+                repo = str(entry.meta.get("repo", "unknown"))
+                seen[repo] += 1
+                if seen[repo] > max_per_repo:
+                    doomed[entry.entry_id] = entry
+        if not dry_run:
+            for entry in doomed.values():
+                with self._lock:
+                    entry.path.unlink(missing_ok=True)
+            if doomed:
+                self.write_index()
+        return list(doomed.values())
+
+    def _write_index(self) -> Path:
         lines = [
             "# Shared agent memory",
             "",

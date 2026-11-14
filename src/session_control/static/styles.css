@@ -751,3 +751,43 @@ select {
   width: auto;
   border-radius: 0 8px 8px 0;
 }
+
+.note-body {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 4px 18px 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.note-body h2,
+.note-body h3,
+.note-body h4 {
+  margin: 16px 0 6px;
+}
+
+.note-body ul {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+
+.note-body pre,
+.note-body code {
+  background: var(--code-bg);
+  border-radius: 6px;
+}
+
+.note-body code {
+  padding: 1px 5px;
+}
+
+.note-body pre {
+  padding: 10px;
+  overflow-x: auto;
+}
+
+.note-body pre code {
+  padding: 0;
+}

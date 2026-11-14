@@ -174,6 +174,9 @@ session-control condense <session-id>      # write a note without removing the s
 session-control condense --all             # backfill notes for existing sessions
 session-control condense --all --older-than 30d --provider claude
 session-control condense --all --refresh --model qwen3:14b   # upgrade notes with a local model
+session-control condense --all --stale     # also refresh notes whose session changed
+session-control memory prune --older-than 365d --dry-run
+session-control memory prune --max-per-repo 50
 session-control prune --no-condense        # opt out for one run
 ```
 
@@ -193,7 +196,15 @@ local Ollama (for example the `crew-chief` service) and set
 and `SESSION_CONTROL_CONDENSER_MODEL=<model>`. Session text is only ever sent to a loopback
 host, and if the model is unreachable the extractive note is written instead. If a note
 cannot be written, the removal is refused rather than losing the session; set
-`SESSION_CONTROL_CONDENSE_ON_REMOVE=0` to disable. Notes are kept until you delete them.
+`SESSION_CONTROL_CONDENSE_ON_REMOVE=0` to disable. Notes are kept until you delete them (`memory prune` removes old or surplus ones).
+
+In the web UI a model call never blocks a request: delete, bulk delete and **Condense to
+memory** write the extractive note immediately, then a worker thread upgrades it with the
+model. The CLI, prune timer and backfill run the model synchronously.
+
+Install the daily backfill timer (04:05, `condense --all --stale`) with
+`./scripts/install_condense_timer.sh`. The note view renders a small, escaped markdown
+subset (headings, lists, bold, code); links and raw HTML are never rendered.
 
 ## Subagent sessions
 

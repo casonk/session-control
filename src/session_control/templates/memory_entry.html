@@ -27,7 +27,7 @@
           </section>
         {% endif %}
       {% endwith %}
-      <code class="command large">{{ entry.body }}</code>
+      <article class="note-body">{{ entry.body|markdown_safe }}</article>
       <p class="meta">Source session {{ entry.meta.session_id }} · {{ entry.meta.backend }} · reason: {{ entry.meta.reason }}. A summary, not a transcript: verify against the repository.</p>
       <div class="actions">
         <form method="post" action="{{ url_for('delete_memory_entry', entry_id=entry.entry_id) }}">

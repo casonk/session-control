@@ -293,3 +293,159 @@ def test_cli_model_flag_selects_the_ollama_condenser_for_one_run(app_config, cap
     assert seen == ["qwen3:14b"]
     entry = SessionActionService(app_config).memory_store.entries()[0]
     assert entry.meta["backend"] == "ollama:qwen3:14b"
+
+
+# ------------------------------------------------- deferred model upgrade, stale, retention
+
+
+def test_background_condense_writes_fast_note_then_upgrades_it(app_config):
+    from dataclasses import replace
+
+    config = replace(
+        app_config,
+        condenser="ollama",
+        condenser_url="http://127.0.0.1:11434",
+        condenser_model="tiny",
+    )
+    session = _claude_session(config)
+    service = SessionActionService(config, background_condense=True)
+    jobs = []
+    service._submit_background = jobs.append  # run the upgrade by hand, deterministically
+
+    with mock.patch.object(OllamaCondenser, "_generate", return_value="## Goal\n- upgraded"):
+        service.delete(session.public_id)
+        entry_id = f"claude-{session.public_id}"
+        before = service.memory_store.get(entry_id)
+        assert before.meta["backend"] == "extractive" and "Opening request" in before.body
+        assert not session.primary_path.exists()  # removal did not wait for the model
+        assert len(jobs) == 1
+        jobs[0]()
+    after = service.memory_store.get(entry_id)
+    assert after.meta["backend"] == "ollama:tiny" and "upgraded" in after.body
+
+
+def test_background_upgrade_failure_keeps_the_fast_note(app_config):
+    from dataclasses import replace
+
+    config = replace(
+        app_config,
+        condenser="ollama",
+        condenser_url="http://127.0.0.1:11434",
+        condenser_model="tiny",
+    )
+    session = _claude_session(config)
+    service = SessionActionService(config, background_condense=True)
+    jobs = []
+    service._submit_background = jobs.append
+    with mock.patch.object(OllamaCondenser, "_generate", side_effect=urllib.error.URLError("x")):
+        service.delete(session.public_id)
+        jobs[0]()
+    assert service.memory_store.entries()[0].meta["backend"] == "extractive"
+
+
+def test_a_real_background_worker_finishes(app_config):
+    from dataclasses import replace
+
+    config = replace(
+        app_config,
+        condenser="ollama",
+        condenser_url="http://127.0.0.1:11434",
+        condenser_model="tiny",
+    )
+    session = _claude_session(config)
+    service = SessionActionService(config, background_condense=True)
+    with mock.patch.object(OllamaCondenser, "_generate", return_value="- done"):
+        service.delete(session.public_id)
+        service._executor.shutdown(wait=True)
+    assert service.memory_store.entries()[0].meta["backend"] == "ollama:tiny"
+
+
+def test_condense_all_stale_rewrites_only_changed_sessions(app_config):
+    session = _claude_session(app_config)
+    service = SessionActionService(app_config)
+    service.condense_all()
+    assert service.condense_all(stale_only=True)[0] == []  # note is newer than the session
+
+    store = service.memory_store
+    entry = store.entries()[0]
+    old = entry.meta | {"condensed_at": "2020-01-01T00:00:00+00:00"}
+    entry.path.write_text(memory._render(old, entry.body), encoding="utf-8")
+    assert service.condense_all(stale_only=True)[0] == [f"claude-{session.public_id}"]
+
+
+def _note(store, name, repo, condensed_at):
+    meta = {
+        "provider": "claude",
+        "session_id": name,
+        "title": name,
+        "repo": repo,
+        "condensed_at": condensed_at,
+    }
+    path = store.entries_dir / f"claude-{name}.md"
+    store._write_private(path, memory._render(meta, f"# {name}\n"))
+
+
+def test_rotate_by_age_and_per_repo_cap_with_dry_run(app_config):
+    from datetime import timedelta
+
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    _note(store, "old", "a", "2020-01-01T00:00:00+00:00")
+    _note(store, "a1", "a", "2999-01-03T00:00:00+00:00")
+    _note(store, "a2", "a", "2999-01-02T00:00:00+00:00")
+    _note(store, "b1", "b", "2999-01-01T00:00:00+00:00")
+
+    assert {e.entry_id for e in store.rotate(older_than=timedelta(days=30), dry_run=True)} == {
+        "claude-old"
+    }
+    assert len(store.entries()) == 4  # dry run deletes nothing
+
+    removed = store.rotate(max_per_repo=1)
+    assert {e.entry_id for e in removed} == {"claude-old", "claude-a2"}
+    assert {e.entry_id for e in store.entries()} == {"claude-a1", "claude-b1"}
+    assert "claude-a2" not in store.index_path.read_text()
+
+
+def test_cli_memory_prune_and_stale(app_config, capsys):
+    session = _claude_session(app_config)
+    with mock.patch.object(cli.AppConfig, "from_env", return_value=app_config):
+        assert cli.main(["condense", "--all", "--stale"]) == 0
+        assert cli.main(["memory", "prune"]) == 2
+        assert cli.main(["memory", "prune", "--max-per-repo", "0"]) == 2
+        assert cli.main(["memory", "prune", "--older-than", "1d", "--dry-run"]) == 0
+        assert "Would delete 0" in capsys.readouterr().out.splitlines()[-1]
+        assert cli.main(["memory", "prune", "--max-per-repo", "1"]) == 0
+    assert len(SessionActionService(app_config).memory_store.entries()) == 1
+    assert session.provider == "claude"
+
+
+def test_web_note_page_renders_markdown_and_blocks_markup(app_config):
+    session = _claude_session(app_config)
+    store = MemoryStore(app_config.trash_dir.parent / "memory")
+    entry = store.condense(session, ExtractiveCondenser(), reason="manual")
+    entry.path.write_text(
+        entry.path.read_text() + "\n- <script>alert(1)</script> **bold**\n", encoding="utf-8"
+    )
+    page = _web(app_config).get(f"/memory/{entry.entry_id}").get_data(as_text=True)
+    assert "<strong>bold</strong>" in page and "<h3>Summary</h3>" in page
+    assert "<script>alert(1)" not in page and "&lt;script&gt;" in page
+
+
+def test_ollama_asks_for_no_reasoning_and_retries_for_models_without_it():
+    condenser = OllamaCondenser("http://127.0.0.1:11434", "plain")
+    sent = []
+
+    def post(prompt, *, think):
+        sent.append(think)
+        if think is False:
+            raise urllib.error.HTTPError("u", 400, "no thinking", {}, None)
+        return "ok"
+
+    with mock.patch.object(condenser, "_post", post):
+        assert condenser._generate("p") == "ok"
+    assert sent == [False, None]
+
+    def server_error(prompt, *, think):
+        raise urllib.error.HTTPError("u", 500, "boom", {}, None)
+
+    with mock.patch.object(condenser, "_post", server_error), pytest.raises(urllib.error.HTTPError):
+        condenser._generate("p")
