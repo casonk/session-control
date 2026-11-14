@@ -527,7 +527,8 @@ Install the daily user-level clockwork timer:
 
 The timer is rendered from
 `config/clockwork/prune-sessions.toml.template` and runs daily at 03:35 with a
-small randomized delay. It can be inspected with:
+small randomized delay. Each run first merges duplicate sessions aged 50 days up to
+`--older-than` (`session-control deduplicate`), then prunes. It can be inspected with:
 
 ```bash
 systemctl --user list-timers session-control-prune.timer
