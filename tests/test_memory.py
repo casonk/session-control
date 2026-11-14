@@ -526,3 +526,17 @@ def test_cli_memory_failures_and_failed_flag(app_config, capsys):
         assert "claude-abc" in capsys.readouterr().out
         assert cli.main(["condense", "--failed"]) == 0
         assert "Condensed 0 session(s)" in capsys.readouterr().out
+
+
+def test_removal_and_model_fallback_are_logged(app_config, caplog):
+    caplog.set_level("INFO", logger="session_control")
+    session = _claude_session(app_config)
+    service = SessionActionService(app_config)
+    store = service.memory_store
+    condenser = OllamaCondenser("http://127.0.0.1:1", "tiny")
+    with mock.patch.object(condenser, "_generate", side_effect=OSError("down")):
+        store.condense(session, condenser, reason="manual")
+    service.delete(session.public_id)
+    text = caplog.text
+    assert "condenser fell back to extraction" in text and "down" in text
+    assert f"removed session claude-{session.public_id} reason=delete" in text

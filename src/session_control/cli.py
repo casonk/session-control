@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import logging
 import os
 import re
 import ssl
@@ -30,6 +31,7 @@ from session_control.config import AppConfig
 from session_control.dedup import DEFAULT_SIMILARITY
 from session_control.federation import build_inventory
 from session_control.handoff import HANDOFF_TARGETS
+from session_control.logging_setup import configure_logging
 from session_control.scanner import PROVIDERS, SessionScanner
 from session_control.web import create_app
 
@@ -145,6 +147,17 @@ def _relative_short_subagent_age(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="session-control")
+    parser.add_argument(
+        "--log-file",
+        metavar="PATH|default|off",
+        help="also log to a rotating file (default: SESSION_CONTROL_LOG_FILE; on by "
+        "default only on macOS and Windows)",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["debug", "info", "warning", "error", "critical"],
+        help="log verbosity on stderr (default: SESSION_CONTROL_LOG_LEVEL or info)",
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     scan = subparsers.add_parser("scan", help="scan local AI session stores")
@@ -380,12 +393,14 @@ def main(argv: list[str] | None = None) -> int:
     _load_default_env()
     parser = _build_parser()
     args = parser.parse_args(argv)
+    configure_logging(args.log_level, args.log_file)
     config = AppConfig.from_env()
 
     if args.command in {None, "web"}:
         host = getattr(args, "host", os.environ.get("SESSION_CONTROL_HOST", "127.0.0.1"))
         port = getattr(args, "port", int(os.environ.get("SESSION_CONTROL_PORT", "5420")))
         _validate_bind(host)
+        logging.getLogger(__name__).info("web UI listening on %s:%s", host, port)
         create_app(config).run(host=host, port=port, debug=getattr(args, "debug", False))
         return 0
 

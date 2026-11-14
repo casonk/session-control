@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import hmac
 import ipaddress
+import logging
 import secrets
 import ssl
 from collections import Counter
@@ -58,6 +59,8 @@ CLAUDE_TOKEN_FIELDS = (
     "output_tokens",
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_app(
     config: AppConfig | None = None,
@@ -93,6 +96,7 @@ def create_app(
         configured = [app_config.public_origin or "", *app_config.allowed_origins]
         extra = [urlparse(value).hostname or "" for value in configured if value]
         if not _portfolio_site().host_allowed(request.host, extra=extra):
+            logger.warning("rejected request: unexpected Host %.80r", request.host)
             abort(HTTPStatus.FORBIDDEN, description="Unexpected Host header.")
 
     @app.before_request
@@ -105,9 +109,13 @@ def create_app(
             return
         source = _request_source(request)
         if source and not _same_origin(source, app_config, request):
+            logger.warning("rejected %s %s: cross-origin", request.method, request.path)
             abort(HTTPStatus.FORBIDDEN, description="Cross-origin request blocked.")
         token = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
         if not token or token != session.get("csrf_token"):
+            logger.warning(
+                "rejected %s %s: missing or invalid CSRF token", request.method, request.path
+            )
             abort(HTTPStatus.FORBIDDEN, description="Missing or invalid CSRF token.")
 
     @app.get("/_portfolio/<name>")

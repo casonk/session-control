@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import re
 import threading
@@ -46,6 +47,7 @@ MAX_OUTCOME_CHARS = 2000
 MAX_SUMMARY_CHARS = 4000
 MAX_FILES = 15
 MAX_LLM_INPUT_CHARS = 12_000
+logger = logging.getLogger(__name__)
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 _FILE_PATH = re.compile(r"(?<![\w/.:@-])(?:\.{0,2}/)?(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9]{1,8}\b")
@@ -256,6 +258,7 @@ class MemoryStore:
         with self._lock:
             self._write_private(target, _render(meta, body))
             self._write_index()
+            logger.info("wrote note %s backend=%s reason=%s", entry_id, condensed.backend, reason)
             self._track_failure(entry_id, condensed.error, reason)
         return MemoryEntry(entry_id, meta, body, target)
 
@@ -318,6 +321,7 @@ class MemoryStore:
         """Add or clear one failure record; callers hold the lock."""
         failures = self.failures()
         if error:
+            logger.warning("condenser fell back to extraction for %s: %s", entry_id, error)
             previous = failures.get(entry_id, {})
             failures[entry_id] = {
                 "error": _clip(_line(redact(error)[0]), 300),
@@ -326,6 +330,7 @@ class MemoryStore:
                 "attempts": int(previous.get("attempts", 0)) + 1,
             }
         elif entry_id in failures:
+            logger.info("condensation failure cleared for %s", entry_id)
             del failures[entry_id]
         else:
             return
