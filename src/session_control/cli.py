@@ -12,7 +12,7 @@ import ssl
 import stat
 import sys
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -32,6 +32,7 @@ from session_control.dedup import DEFAULT_SIMILARITY
 from session_control.federation import build_inventory
 from session_control.handoff import HANDOFF_TARGETS
 from session_control.logging_setup import configure_logging
+from session_control.memory import MemoryStoreError
 from session_control.scanner import PROVIDERS, SessionScanner
 from session_control.web import create_app
 
@@ -295,6 +296,10 @@ def _build_parser() -> argparse.ArgumentParser:
     memory_show.add_argument(
         "--cold", action="store_true", help="fall back to the compressed cold store"
     )
+    memory_restore = memory_sub.add_parser(
+        "restore", help="copy a note back from the compressed cold store"
+    )
+    memory_restore.add_argument("entry_id")
     memory_prune = memory_sub.add_parser("prune", help="delete old or surplus notes")
     memory_prune.add_argument(
         "--older-than", type=_parse_duration, help="notes condensed longer ago than this"
@@ -680,6 +685,23 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
     store = SessionActionService(config).memory_store
+    if args.memory_command == "restore":
+        try:
+            entry = store.restore(args.entry_id)
+        except MemoryStoreError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"Restored {entry.entry_id}: {entry.path}")
+        days = config.memory_note_retention_days
+        if days and (datetime.now(timezone.utc) - entry.last_active).days > days:
+            print(
+                f"note: this session is older than the {days}-day retention window, so the next "
+                "`memory retention` run moves it back to cold storage "
+                "(raise SESSION_CONTROL_MEMORY_RETENTION_DAYS to keep it live).",
+                file=sys.stderr,
+            )
+        return 0
+
     if args.memory_command == "retention":
         note_days = config.memory_note_retention_days
         cold_days = config.memory_cold_retention_days

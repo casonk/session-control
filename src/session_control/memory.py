@@ -227,6 +227,11 @@ class MemoryEntry:
     def title(self) -> str:
         return str(self.meta.get("title") or self.entry_id)
 
+    @property
+    def last_active(self) -> datetime:
+        """When the session behind this note was last active."""
+        return _entry_activity(self)
+
     def to_markdown(self) -> str:
         """The note as stored on disk (front matter and body)."""
         return _render(self.meta, self.body)
@@ -486,6 +491,25 @@ class MemoryStore:
         if not re.fullmatch(r"[\w.-]+", entry_id or ""):
             return None
         return next((e for e in self.cold_entries() if e.entry_id == entry_id), None)
+
+    def restore(self, entry_id: str) -> MemoryEntry:
+        """Copy a note back from the cold store into the live notes.
+
+        The cold copy stays where it is. Retention and merging judge a note by its session's
+        age, so a restored note whose session is already past the retention window moves to
+        the cold store again on the next run.
+        """
+        if self.get(entry_id) is not None:
+            raise MemoryStoreError(f"note {entry_id!r} is already live")
+        cold = self.get_cold(entry_id)
+        if cold is None:
+            raise MemoryStoreError(f"no cold note {entry_id!r}")
+        target = self.entries_dir / f"{entry_id}.md"
+        with self._lock:
+            self._write_private(target, cold.to_markdown())
+            self._write_index()
+        logger.info("restored %s from the cold store", entry_id)
+        return MemoryEntry(entry_id, cold.meta, cold.body, target)
 
     def expire(
         self,

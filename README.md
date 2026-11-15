@@ -216,7 +216,9 @@ into a compressed monthly bundle, `cold/cold-YYYY-MM.tar.gz`, which is written a
 before the live file is removed. Originals folded into a rollup go to the same bundles. A bundle
 is deleted for good once its whole month is over 365 days old
 (`SESSION_CONTROL_MEMORY_COLD_RETENTION_DAYS`); `0` keeps things forever. The cold store is not
-searched by default; `memory search --cold <topic>` and `memory show --cold <id>` read it.
+searched by default; `memory search --cold <topic>` and `memory show --cold <id>` read it, and
+`memory restore <id>` copies a note back (the cold copy stays; a restored note whose session is
+already past the retention window moves back at the next run).
 Failure-log entries for notes that no longer exist are dropped. A backfill never rewrites a note
 that retention would move at once, nor one already folded into a rollup, so the daily run does
 not undo itself. `memory prune` remains for one-off, manual cleanup (it deletes).
