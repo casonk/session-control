@@ -4,6 +4,7 @@
 [repository]
 # One line shown on GitHub. Keep it free of private repository names and local paths.
 description = "Private web control plane for local AI assistant sessions: scan, summarize, resume, and clean up session files."
+topics = ["ai-assistants", "sessions", "flask", "python", "claude-code", "codex", "cli"]
 
 [main_branch]
 # Direct commits and pushes to main are refused unless this is true.
