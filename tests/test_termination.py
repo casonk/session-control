@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -60,7 +60,7 @@ def test_rotate_expires_trash_and_digest_separately(app_config):
     metadata["moved_at"] = old_timestamp
     old_manifest.write_text(json.dumps(metadata))
     digest = next(service.digest_store.root.glob("*.json"))
-    old_time = (datetime.now(timezone.utc) - timedelta(days=400)).timestamp()
+    old_time = (datetime.now(UTC) - timedelta(days=400)).timestamp()
     os.utime(digest, (old_time, old_time))
 
     assert service.rotate(dry_run=True) == (1, 1)

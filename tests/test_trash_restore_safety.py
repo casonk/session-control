@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,7 +23,7 @@ from tests.helpers import write_json
 
 MANIFEST = ".session-control-restore.json"
 OLD_STAMP = "20260101T000000Z"
-RECENT_STAMP = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+RECENT_STAMP = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def make_entry(
@@ -477,7 +477,7 @@ class TestPruneValidationAndErrors:
         good = replace(session(app_config, "good"), updated_at=old, created_at=old)
         service = svc(app_config, bad, good)
 
-        result = service.prune(timedelta(days=30), now=datetime(2026, 4, 10, tzinfo=timezone.utc))
+        result = service.prune(timedelta(days=30), now=datetime(2026, 4, 10, tzinfo=UTC))
 
         assert [d.session.session_id for d in result.deleted] == ["good"]
         assert len(result.errors) == 1
@@ -586,7 +586,7 @@ class TestDatetimeHelper:
         assert actions._parse_datetime(value) is None
 
     def test_z_offset_and_naive_forms_are_read_as_utc(self):
-        want = datetime(2026, 4, 8, 12, tzinfo=timezone.utc)
+        want = datetime(2026, 4, 8, 12, tzinfo=UTC)
         assert actions._parse_datetime("2026-04-08T12:00:00Z") == want
         assert actions._parse_datetime("2026-04-08T14:00:00+02:00") == want
         assert actions._parse_datetime("2026-04-08T12:00:00") == want

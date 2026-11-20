@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from session_control.models import SessionRecord
@@ -36,7 +36,7 @@ class DigestStore:
         self.root = root
 
     def record(self, session: SessionRecord, *, reason: str) -> Path:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         identifier = hashlib.sha256(
             f"{session.provider}\0{session.session_id}\0{now.isoformat()}".encode()
         ).hexdigest()
@@ -87,12 +87,12 @@ class DigestStore:
     def rotate(self, older_than: timedelta, *, dry_run: bool = False) -> int:
         if not self.root.exists():
             return 0
-        cutoff = datetime.now(timezone.utc) - older_than
+        cutoff = datetime.now(UTC) - older_than
         expired = 0
         for path in self.root.glob("*.json"):
             if path.is_symlink() or not path.is_file():
                 continue
-            if datetime.fromtimestamp(path.stat().st_mtime, timezone.utc) >= cutoff:
+            if datetime.fromtimestamp(path.stat().st_mtime, UTC) >= cutoff:
                 continue
             expired += 1
             if not dry_run:

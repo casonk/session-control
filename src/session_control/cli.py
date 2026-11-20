@@ -12,7 +12,7 @@ import ssl
 import stat
 import sys
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -693,7 +693,7 @@ def _run_memory(args: argparse.Namespace, config: AppConfig) -> int:
             return 1
         print(f"Restored {entry.entry_id}: {entry.path}")
         days = config.memory_note_retention_days
-        if days and (datetime.now(timezone.utc) - entry.last_active).days > days:
+        if days and (datetime.now(UTC) - entry.last_active).days > days:
             print(
                 f"note: this session is older than the {days}-day retention window, so the next "
                 "`memory retention` run moves it back to cold storage "

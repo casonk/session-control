@@ -7,7 +7,7 @@ name = "session-control"
 version = "0.2.0"
 description = "Private web control plane for local AI assistant session files."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
   { name = "Cason Konzer", email = "casonk@umich.edu" },
@@ -62,11 +62,11 @@ pythonpath = ["src"]
 
 [tool.black]
 line-length = 100
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.format]
 quote-style = "double"

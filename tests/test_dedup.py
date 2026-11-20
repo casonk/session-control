@@ -6,14 +6,14 @@ window, provider and workspace boundaries, and the similarity threshold.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from session_control import dedup
 from session_control.dedup import DEFAULT_SIMILARITY, find_duplicate_groups, session_similarity
 from session_control.models import SessionRecord
 
-NOW = datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 4, 10, 12, 0, tzinfo=UTC)
 DAY = timedelta(days=1)
 
 
@@ -113,7 +113,7 @@ class TestAgeWindow:
         assert groups(z, offset, naive) == [["n", "o", "z"]]
 
     def test_without_now_the_current_time_is_used(self):
-        stamp = (datetime.now(timezone.utc) - 2 * DAY).isoformat()
+        stamp = (datetime.now(UTC) - 2 * DAY).isoformat()
         a, b = rec("a", updated=stamp), rec("b", updated=stamp)
         assert groups(a, b, now=None) == [["a", "b"]]
 
@@ -191,14 +191,12 @@ class TestClustering:
 
 class TestParsing:
     def test_parse_datetime_handles_the_forms_providers_write(self):
-        assert dedup._parse_datetime("2026-04-08T12:00:00Z") == datetime(
-            2026, 4, 8, 12, tzinfo=timezone.utc
-        )
+        assert dedup._parse_datetime("2026-04-08T12:00:00Z") == datetime(2026, 4, 8, 12, tzinfo=UTC)
         assert dedup._parse_datetime("  2026-04-08T12:00:00+00:00  ") == datetime(
-            2026, 4, 8, 12, tzinfo=timezone.utc
+            2026, 4, 8, 12, tzinfo=UTC
         )
         assert dedup._parse_datetime("2026-04-08T14:00:00+02:00") == datetime(
-            2026, 4, 8, 12, tzinfo=timezone.utc
+            2026, 4, 8, 12, tzinfo=UTC
         )
         assert dedup._parse_datetime("2026-04-08T12:00:00").tzinfo is not None
         assert dedup._parse_datetime("yesterday") is None

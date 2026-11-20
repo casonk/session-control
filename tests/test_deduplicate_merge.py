@@ -8,7 +8,7 @@ lives under a temporary directory; a stub scanner returns exactly the records un
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,7 +19,7 @@ from session_control.actions import SessionActionError, SessionActionService
 from session_control.models import SessionRecord
 from tests.helpers import write_json, write_jsonl
 
-NOW = datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 4, 10, 12, 0, tzinfo=UTC)
 DAY = timedelta(days=1)
 OLD, NEW = "2026-04-05T12:00:00Z", "2026-04-08T12:00:00Z"
 

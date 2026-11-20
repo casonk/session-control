@@ -14,7 +14,7 @@ import io
 import os
 import re
 import tarfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 MAX_MEMBER_BYTES = 1_000_000
@@ -90,7 +90,7 @@ def expire(
     for path in bundles(directory):
         match = _BUNDLE.fullmatch(path.name)
         year, month = int(match.group(1)), int(match.group(2))
-        end = datetime(year + month // 12, month % 12 + 1, 1, tzinfo=timezone.utc)
+        end = datetime(year + month // 12, month % 12 + 1, 1, tzinfo=UTC)
         if end < now - retention:
             doomed.append(path)
     if not dry_run:

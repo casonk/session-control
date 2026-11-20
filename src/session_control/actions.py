@@ -13,7 +13,7 @@ import sqlite3
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -372,7 +372,7 @@ class SessionActionService:
         if min_age >= max_age:
             raise SessionActionError("min_age must be less than max_age.")
         report = self.scanner.scan(providers=providers)
-        reference = _to_utc(now or datetime.now(timezone.utc))
+        reference = _to_utc(now or datetime.now(UTC))
         raw_groups = find_duplicate_groups(
             report.sessions, min_age, max_age, similarity=similarity, now=reference
         )
@@ -471,7 +471,7 @@ class SessionActionService:
             raise SessionActionError(
                 "Short subagent age must be positive and no longer than prune age."
             )
-        reference_time = _to_utc(now or datetime.now(timezone.utc))
+        reference_time = _to_utc(now or datetime.now(UTC))
         cutoff = reference_time - older_than
         short_cutoff = reference_time - short_subagent_age if short_subagent_age else None
         report = self.scanner.scan(providers=providers)
@@ -624,11 +624,11 @@ class SessionActionService:
         ``failed_only`` redoes just the notes in the failure log; entries whose session
         is gone cannot be retried and are dropped from the log (the note stays).
         """
-        cutoff = datetime.now(timezone.utc) - older_than if older_than else None
+        cutoff = datetime.now(UTC) - older_than if older_than else None
         have = self.memory_store.ids()
         merged = self.memory_store.merged_ids()
         retention = self.config.memory_note_retention_days
-        expiry = datetime.now(timezone.utc) - timedelta(days=retention) if retention else None
+        expiry = datetime.now(UTC) - timedelta(days=retention) if retention else None
         condensed_at = (
             {
                 entry.entry_id: _parse_datetime(str(entry.meta.get("condensed_at", "")))
@@ -728,7 +728,7 @@ class SessionActionService:
 
     def rotate(self, *, dry_run: bool = False) -> tuple[int, int]:
         """Expire validated restorable trash entries and aged digest records."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.config.trash_retention_days)
+        cutoff = datetime.now(UTC) - timedelta(days=self.config.trash_retention_days)
         trash_count = 0
         for candidate in self.list_trash():
             try:
@@ -736,7 +736,7 @@ class SessionActionService:
                 if any(part.is_symlink() for part in (batch, batch.parent, batch.parent.parent)):
                     continue
                 moved = datetime.strptime(candidate.trash_id.split("/")[0], "%Y%m%dT%H%M%SZ")
-                if moved.replace(tzinfo=timezone.utc) >= cutoff:
+                if moved.replace(tzinfo=UTC) >= cutoff:
                     continue
                 trash_count += 1
                 if not dry_run:
@@ -794,7 +794,7 @@ class SessionActionService:
         return found, errors
 
     def _trash_batch_dir(self, session: SessionRecord) -> Path:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         safe_session = "".join(
             ch if ch.isalnum() or ch in "-_" else "_" for ch in session.session_id
         )
@@ -835,8 +835,8 @@ def _parse_datetime(value: str) -> datetime | None:
 
 def _to_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _is_under(path: Path, root: Path) -> bool:

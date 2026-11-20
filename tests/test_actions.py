@@ -4,7 +4,7 @@ import json
 import os
 import sqlite3
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -348,14 +348,14 @@ def test_prune_dry_run_reports_old_sessions_without_deleting(app_config):
         app_config.continue_root,
         session_id="11111111-1111-4111-8111-111111111111",
         title="Old Continue session",
-        mtime=datetime(2025, 10, 1, tzinfo=timezone.utc),
+        mtime=datetime(2025, 10, 1, tzinfo=UTC),
     )
 
     result = SessionActionService(app_config).prune(
         timedelta(days=180),
         providers=("continue",),
         dry_run=True,
-        now=datetime(2026, 5, 3, tzinfo=timezone.utc),
+        now=datetime(2026, 5, 3, tzinfo=UTC),
     )
 
     assert [session.session_id for session in result.eligible] == [
@@ -389,7 +389,7 @@ def test_prune_can_target_only_aged_short_subagents(app_config):
         timedelta(days=1),
         providers=("codex",),
         short_subagents_only=True,
-        now=datetime(2026, 4, 3, tzinfo=timezone.utc),
+        now=datetime(2026, 4, 3, tzinfo=UTC),
     )
 
     assert [item.session.session_id for item in result.deleted] == [
@@ -416,14 +416,14 @@ def test_prune_uses_relative_age_only_for_short_subagents(app_config):
         app_config.continue_root,
         session_id="33333333-3333-4333-8333-333333333333",
         title="Old session",
-        mtime=datetime(2025, 10, 1, tzinfo=timezone.utc),
+        mtime=datetime(2025, 10, 1, tzinfo=UTC),
     )
 
     result = SessionActionService(app_config).prune(
         timedelta(days=180),
         short_subagent_age=timedelta(days=45),
         dry_run=True,
-        now=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        now=datetime(2026, 6, 1, tzinfo=UTC),
     )
 
     assert {item.session_id for item in result.eligible} == {
@@ -437,19 +437,19 @@ def test_prune_deletes_only_sessions_older_than_cutoff(app_config):
         app_config.continue_root,
         session_id="22222222-2222-4222-8222-222222222222",
         title="Old Continue session",
-        mtime=datetime(2025, 10, 1, tzinfo=timezone.utc),
+        mtime=datetime(2025, 10, 1, tzinfo=UTC),
     )
     recent_path = _seed_continue_session(
         app_config.continue_root,
         session_id="33333333-3333-4333-8333-333333333333",
         title="Recent Continue session",
-        mtime=datetime(2026, 4, 1, tzinfo=timezone.utc),
+        mtime=datetime(2026, 4, 1, tzinfo=UTC),
     )
 
     result = SessionActionService(app_config).prune(
         timedelta(days=180),
         providers=("continue",),
-        now=datetime(2026, 5, 3, tzinfo=timezone.utc),
+        now=datetime(2026, 5, 3, tzinfo=UTC),
     )
 
     assert [deleted.session.session_id for deleted in result.deleted] == [
@@ -469,7 +469,7 @@ def test_prune_skips_old_live_copilot_sessions(app_config):
     result = SessionActionService(app_config).prune(
         timedelta(days=180),
         providers=("copilot",),
-        now=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        now=datetime(2026, 10, 1, tzinfo=UTC),
     )
 
     assert result.eligible == ()

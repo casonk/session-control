@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import stat
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -33,7 +33,7 @@ from session_control.actions import (
 )
 from session_control.models import ScanError, ScanReport, SessionRecord
 
-CUTOFF = datetime(2026, 5, 1, tzinfo=timezone.utc)
+CUTOFF = datetime(2026, 5, 1, tzinfo=UTC)
 
 
 def record(provider="codex", session_id="0123456789abcdef", title="Fix the thing", **kwargs):

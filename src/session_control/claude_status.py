@@ -6,7 +6,7 @@ import json
 import re
 import subprocess
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 LIMIT_KEY_MARKERS = ("limit", "quota", "usage", "remaining", "reset")
@@ -159,7 +159,7 @@ def collect_claude_usage(timeout_seconds: int) -> dict[str, Any]:
 
 
 def _parse_usage_text(checked_at: str, text: str) -> dict[str, Any]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     windows: list[dict[str, Any]] = []
     for line in text.splitlines():
         line = line.strip()
@@ -206,7 +206,7 @@ def _parse_reset_time(line: str, reference: datetime) -> str:
         try:
             dt = datetime(candidate_year, month, int(day_str), hour, minute, tzinfo=tz)
             if dt >= reference:
-                return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+                return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
         except (ValueError, OverflowError):
             continue
     return ""
@@ -264,7 +264,7 @@ def _error_usage(checked_at: str, message: str) -> dict[str, Any]:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _truncate_line(value: str) -> str:

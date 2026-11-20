@@ -18,7 +18,7 @@ from __future__ import annotations
 import signal
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Allow running from the repo root without installing the package.
@@ -99,7 +99,7 @@ def _ts_short(dt: datetime | None) -> str:
     if dt is None:
         return "never"
     local = dt.astimezone()
-    delta = datetime.now(timezone.utc) - dt
+    delta = datetime.now(UTC) - dt
     if delta.total_seconds() < 86400:
         return local.strftime("%H:%M:%S")
     return local.strftime("%m-%d %H:%M")

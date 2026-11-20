@@ -32,7 +32,7 @@ import urllib.request
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlparse
@@ -280,7 +280,7 @@ class MemoryStore:
             "workspace": redact(session.workspace)[0],
             "created_at": session.created_at,
             "updated_at": session.updated_at,
-            "condensed_at": (now or datetime.now(timezone.utc)).isoformat(),
+            "condensed_at": (now or datetime.now(UTC)).isoformat(),
             "messages": session.message_count,
             "category": category_for(session),
             "reason": reason,
@@ -358,7 +358,7 @@ class MemoryStore:
             previous = failures.get(entry_id, {})
             failures[entry_id] = {
                 "error": _clip(_line(redact(error)[0]), 300),
-                "failed_at": datetime.now(timezone.utc).isoformat(),
+                "failed_at": datetime.now(UTC).isoformat(),
                 "reason": reason,
                 "attempts": int(previous.get("attempts", 0)) + 1,
             }
@@ -439,7 +439,7 @@ class MemoryStore:
         entries = self.entries()
         doomed: dict[str, MemoryEntry] = {}
         if older_than is not None:
-            cutoff = (datetime.now(timezone.utc) - older_than).isoformat()
+            cutoff = (datetime.now(UTC) - older_than).isoformat()
             for entry in entries:
                 if str(entry.meta.get("condensed_at", "")) < cutoff:
                     doomed[entry.entry_id] = entry
@@ -527,7 +527,7 @@ class MemoryStore:
         good. Failure records for notes that no longer exist are dropped. ``None`` skips a
         limit.
         """
-        moment = now or datetime.now(timezone.utc)
+        moment = now or datetime.now(UTC)
         notes = [
             e
             for e in self.entries()
@@ -591,7 +591,7 @@ class MemoryStore:
         originals move to the compressed cold store instead of being deleted. Re-running adds newly
         stale notes to the existing rollup.
         """
-        cutoff = (now or datetime.now(timezone.utc)) - older_than
+        cutoff = (now or datetime.now(UTC)) - older_than
         groups: dict[str, list[MemoryEntry]] = {}
         for entry in self.entries():
             workspace = str(entry.meta.get("workspace") or "")
@@ -642,7 +642,7 @@ class MemoryStore:
             "workspace": redact(workspace)[0],
             "created_at": min(dates) if dates else "",
             "updated_at": max(dates) if dates else "",
-            "condensed_at": (now or datetime.now(timezone.utc)).isoformat(),
+            "condensed_at": (now or datetime.now(UTC)).isoformat(),
             "messages": sum(int(i.get("messages") or 0) for i in ordered),
             "category": "rollup",
             "reason": "merge",
@@ -655,7 +655,7 @@ class MemoryStore:
             self._write_private(self.entries_dir / f"{rollup_id}.md", _render(meta, body))
             memory_cold.append(
                 self.cold_dir,
-                now or datetime.now(timezone.utc),
+                now or datetime.now(UTC),
                 {f"merged/{e.entry_id}.md": e.path.read_bytes() for e in stale},
             )
             for entry in stale:
@@ -759,8 +759,8 @@ def _entry_activity(entry: MemoryEntry) -> datetime:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
             continue
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return datetime.now(UTC)
 
 
 def _rollup_id(workspace: str) -> str:
