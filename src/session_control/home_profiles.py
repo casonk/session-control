@@ -19,7 +19,7 @@ import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -273,7 +273,7 @@ def discover_account_label(spec: HomeProfileSpec, home: Path) -> str:
 
 
 def _blank_registry(spec: HomeProfileSpec, home: Path) -> HomeProfileRegistry:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     registry = HomeProfileRegistry(spec_name=spec.provider)
     registry.profiles["default"] = HomeProfile(
         name="default",
@@ -740,7 +740,7 @@ def harvest_usage(
     cursor = connection.cursor()
     seen = 0
     updated = 0
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     config_path = (
         Path(registry.config_path) if registry.config_path else get_profiles_config_path(spec)
     )
@@ -824,7 +824,7 @@ def get_usage_summary(
     return {
         "profiles": profiles,
         "recent_sessions": recent,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 

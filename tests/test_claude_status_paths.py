@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest import mock
 
@@ -212,7 +212,7 @@ def test_a_single_window_has_no_secondary():
     assert usage["primary"]["used_percent"] == 7.0 and usage["secondary"] is None
 
 
-REF = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+REF = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 
 
 @pytest.mark.parametrize(
@@ -235,7 +235,7 @@ def test_reset_times_are_parsed_to_utc_or_left_blank(line, expected):
 
 
 def test_a_reset_date_already_past_this_year_means_next_year():
-    december = datetime(2026, 12, 20, tzinfo=timezone.utc)
+    december = datetime(2026, 12, 20, tzinfo=UTC)
     assert _parse_reset_time("resets Jan 5, 1am (UTC)", december) == "2027-01-05T01:00:00Z"
 
 

@@ -10,7 +10,7 @@ cannot carry the client certificate to another origin.
 from __future__ import annotations
 
 import urllib.error
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
 
@@ -28,7 +28,7 @@ from session_control.connection_monitor import (
     targets_from_config,
 )
 
-T0 = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 
 
 def sample(ok=True, latency=10.0, n=0):

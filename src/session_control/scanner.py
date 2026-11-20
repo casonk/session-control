@@ -11,7 +11,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -1211,8 +1211,8 @@ def _normalize_datetime(value: str) -> str:
     except ValueError:
         return ""
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _millis_to_iso(value: Any) -> str:
@@ -1221,7 +1221,7 @@ def _millis_to_iso(value: Any) -> str:
     except (TypeError, ValueError):
         return ""
     seconds = millis / 1000
-    return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.fromtimestamp(seconds, tz=UTC).isoformat().replace("+00:00", "Z")
 
 
 def _mtime_iso(path: Path) -> str:
@@ -1232,7 +1232,7 @@ def _mtime_iso(path: Path) -> str:
             mtime = path.stat().st_mtime
     except (OSError, ValueError):
         return ""
-    return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.fromtimestamp(mtime, tz=UTC).isoformat().replace("+00:00", "Z")
 
 
 def _path_size(path: Path) -> int:
@@ -1353,7 +1353,7 @@ def _epoch_to_iso(value: Any) -> str:
     if seconds is None:
         return ""
     try:
-        return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        return datetime.fromtimestamp(seconds, tz=UTC).isoformat().replace("+00:00", "Z")
     except (OSError, OverflowError, ValueError):
         return ""
 

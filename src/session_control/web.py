@@ -9,7 +9,7 @@ import logging
 import secrets
 import ssl
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http import HTTPStatus
 from urllib.parse import urlparse
 
@@ -434,7 +434,7 @@ def create_app(
         if not parsed:
             return "unknown"
         try:
-            delta = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+            delta = datetime.now(UTC) - parsed.astimezone(UTC)
         except (OverflowError, OSError, ValueError):
             return "unknown"
         days = delta.days
@@ -774,5 +774,5 @@ def _parse_datetime(value: str) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed

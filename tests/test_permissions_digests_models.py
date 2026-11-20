@@ -12,7 +12,7 @@ import json
 import os
 import runpy
 import stat
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -216,7 +216,7 @@ def test_rotation_expires_only_old_regular_files_and_dry_run_removes_nothing(tmp
     store = DigestStore(tmp_path)
     old = store.record(record(), reason="a")
     fresh = store.record(record(session_id="def"), reason="b")
-    long_ago = (datetime.now(timezone.utc) - timedelta(days=400)).timestamp()
+    long_ago = (datetime.now(UTC) - timedelta(days=400)).timestamp()
     os.utime(old, (long_ago, long_ago))
     (tmp_path / "dir.json").mkdir()
     outside = tmp_path.parent / "keep.json"

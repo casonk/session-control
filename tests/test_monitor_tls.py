@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from urllib.request import Request
 
@@ -20,7 +20,7 @@ def test_client_context_is_used_only_for_configured_webterm(monkeypatch):
 
     def fake_probe(target, *, ssl_context=None):
         seen.append((target.host, ssl_context))
-        return monitor.ProbeResult(0.0, datetime.now(timezone.utc), True, 1.0)
+        return monitor.ProbeResult(0.0, datetime.now(UTC), True, 1.0)
 
     monkeypatch.setattr(monitor, "_probe", fake_probe)
     runner = monitor.ConnectionMonitor(

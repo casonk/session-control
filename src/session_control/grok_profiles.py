@@ -16,7 +16,7 @@ import sqlite3
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -108,7 +108,7 @@ def discover_email(home: Path) -> str:
 
 
 def _blank_registry(home: Path) -> GrokProfileRegistry:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     registry = GrokProfileRegistry()
     registry.profiles["default"] = GrokProfile(
         name="default",
@@ -288,7 +288,7 @@ def harvest_usage(
     cursor = connection.cursor()
     seen = 0
     updated = 0
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     for profile in current.profiles.values():
         if not profile.enabled:
             continue
@@ -380,7 +380,7 @@ def get_usage_summary(
     return {
         "profiles": profiles,
         "recent_sessions": recent,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 

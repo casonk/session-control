@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import ssl
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
 
@@ -508,7 +508,7 @@ def test_the_filters_present_values_defensively(app_config):
     assert filters["percent"](None) == "unknown" and filters["percent"](42.4) == "42%"
     assert filters["datetime"]("") == "unknown" and filters["datetime"]("garbage") == "garbage"
     assert filters["age"]("garbage") == "unknown"
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for delta, text in (
         (timedelta(days=800), "2y"), (timedelta(days=95), "3mo"), (timedelta(days=3), "3d"),
         (timedelta(hours=5), "5h"), (timedelta(minutes=5), "now"),

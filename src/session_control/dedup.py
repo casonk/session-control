@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
 
 from session_control.models import SessionRecord
@@ -24,7 +24,7 @@ def find_duplicate_groups(
     meaningful). Within each provider, sessions are clustered by fuzzy similarity
     of their preview text (first user prompt).
     """
-    reference = now or datetime.now(timezone.utc)
+    reference = now or datetime.now(UTC)
     in_window = [s for s in sessions if _in_age_window(s, min_age, max_age, reference)]
 
     # Group by (provider, workspace) — sessions in different workspaces are never merged.
@@ -100,5 +100,5 @@ def _parse_datetime(value: str) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)

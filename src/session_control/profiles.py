@@ -10,7 +10,7 @@ import sqlite3
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -99,7 +99,7 @@ def load_profiles(config_path: Path | None = None) -> ProfileRegistry:
     path = config_path or get_profiles_config_path()
     if not path.is_file():
         registry = ProfileRegistry()
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         known = _detect_known_accounts()
         primary_email = known[0] if known else ""
         registry.profiles["default"] = ProfileEntry(
@@ -434,7 +434,7 @@ def harvest_usage(
             meta = index_metadata.get(conv_id, {})
             title = meta.get("title") or conv_id
             workspace = meta.get("workspace") or ""
-            now_iso = datetime.now(timezone.utc).isoformat()
+            now_iso = datetime.now(UTC).isoformat()
 
             cur.execute(
                 """
@@ -530,7 +530,7 @@ def get_usage_summary(
     return {
         "profiles": profiles_summary,
         "recent_sessions": recent_sessions,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 

@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 HISTORY_LEN = 60  # ring buffer depth (~5 min at 5s interval)
 MAX_EVENTS = 100
@@ -214,7 +214,7 @@ class ConnectionMonitor:
 
 
 def _probe(config: TargetConfig, *, ssl_context: ssl.SSLContext | None = None) -> ProbeResult:
-    wall_ts = datetime.now(timezone.utc)
+    wall_ts = datetime.now(UTC)
     t0 = time.monotonic()
     try:
         if config.kind == "icmp":

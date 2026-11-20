@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,7 @@ def build_inventory(report: ScanReport, *, node_id: str, node_label: str) -> dic
     return {
         "schema_version": SCHEMA_VERSION,
         "node": {"id": node_id, "label": _clean_text(node_label, MAX_LABEL_CHARS) or node_id},
-        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "sessions": [_session_summary(session, node_id) for session in report.sessions],
         "scan_error_count": len(report.errors),
     }

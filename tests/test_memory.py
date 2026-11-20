@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import stat
 import urllib.error
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest import mock
 
 import pytest
@@ -626,7 +626,7 @@ def test_backfill_does_not_resurrect_merged_notes(app_config):
     store.merge_stale(
         older_than=timedelta(seconds=0),
         min_notes=1,
-        now=datetime.now(timezone.utc) + timedelta(days=9999),
+        now=datetime.now(UTC) + timedelta(days=9999),
     )
     assert entry_id in store.merged_ids() and entry_id not in store.ids()
     assert service.condense_all(refresh=True)[0] == []
@@ -654,11 +654,11 @@ def test_expire_moves_notes_to_cold_storage_then_deletes_old_bundles(app_config)
     _aged_note(store, "recent", "/w/a", "2999-01-01T00:00:00Z")
     store.record_failure("claude-ancient", "down")
     store.record_failure("claude-gone", "down")
-    june = datetime(2026, 6, 15, tzinfo=timezone.utc)
+    june = datetime(2026, 6, 15, tzinfo=UTC)
     memory_cold.append(store.cold_dir, june, {"merged/claude-old.md": b"---\n---\nx"})
 
     keep = timedelta(days=730)
-    now = datetime(2026, 11, 14, tzinfo=timezone.utc)
+    now = datetime(2026, 11, 14, tzinfo=UTC)
     dry = store.expire(
         note_retention=keep, cold_retention=timedelta(days=100), dry_run=True, now=now
     )
@@ -684,7 +684,7 @@ def test_cold_bundle_is_private_verified_and_rewrites_atomically(app_config):
     from session_control import memory_cold
 
     directory = app_config.trash_dir.parent / "cold"
-    moment = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    moment = datetime(2026, 3, 1, tzinfo=UTC)
     path = memory_cold.append(directory, moment, {"entries/a.md": b"one"})
     memory_cold.append(directory, moment, {"entries/b.md": b"two", "entries/a.md": b"uno"})
     assert memory_cold.read_bundle(path) == {"entries/a.md": b"uno", "entries/b.md": b"two"}
@@ -713,7 +713,7 @@ def test_cold_store_does_not_resurrect_notes_through_backfill(app_config):
     service = SessionActionService(app_config)
     service.condense_all()
     store = service.memory_store
-    far = datetime.now(timezone.utc) + timedelta(days=9999)
+    far = datetime.now(UTC) + timedelta(days=9999)
     store.merge_stale(older_than=timedelta(seconds=0), min_notes=1, now=far)
     assert store.merged_ids() >= {f"claude-{session.public_id}"}
     assert service.condense_all(refresh=True)[0] == []
@@ -725,7 +725,7 @@ def test_backfill_skips_sessions_older_than_note_retention(app_config):
     _claude_session(app_config)
     # retention is shorter than the session's age, so a note would expire again at once
     config = replace(app_config, memory_note_retention_days=1)
-    old = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    old = datetime(2000, 1, 1, tzinfo=UTC)
     with mock.patch("session_control.actions._session_activity_at", return_value=old):
         written, skipped, _ = SessionActionService(config).condense_all()
     assert written == [] and skipped >= 1
