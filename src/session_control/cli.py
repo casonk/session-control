@@ -435,7 +435,17 @@ def main(argv: list[str] | None = None) -> int:
         port = getattr(args, "port", int(os.environ.get("SESSION_CONTROL_PORT", "5420")))
         _validate_bind(host)
         logging.getLogger(__name__).info("web UI listening on %s:%s", host, port)
-        create_app(config).run(host=host, port=port, debug=getattr(args, "debug", False))
+        scanner = SessionScanner(config)
+        if os.environ.get("SESSION_CONTROL_WARM_SCAN", "1").strip().lower() not in {
+            "0",
+            "off",
+            "false",
+            "no",
+        }:
+            scanner.warm_in_background()
+        create_app(config, scanner=scanner).run(
+            host=host, port=port, debug=getattr(args, "debug", False)
+        )
         return 0
 
     if args.command == "scan":

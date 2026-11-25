@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Warm the scan cache on a background thread when the web service starts (`SESSION_CONTROL_WARM_SCAN=0` disables), so the first page load after a restart no longer waits ~14 s for a cold scan. The service listens immediately; a request that arrives mid-warm-up still scans on its own.
 - Cache parsed transcripts per file (modification time and size) so a scan after the 5-second report cache expires re-reads only changed files. The home page re-parsed about 400,000 transcript lines on every miss and took about 20 s (the service latency probe timed out at 5 s); a warm scan now takes about 0.04 s. The first scan after a restart is still cold. Results are identical to the uncached scan on the live data.
 - Add `session-control memory restore <id>`, which copies a note (or a merged original) back from the cold store into the live notes. The cold copy is kept, and a warning says when retention will move the restored note back at the next run.
 
