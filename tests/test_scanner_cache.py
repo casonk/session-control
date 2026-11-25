@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from unittest import mock
 
 import pytest
 
@@ -109,3 +110,19 @@ def test_a_malformed_file_keeps_reporting_its_error_from_the_cache(app_config, c
     first = cached.scan(providers=("codex",))
     second = cached.scan(providers=("codex",))
     assert first.errors and [e.message for e in first.errors] == [e.message for e in second.errors]
+
+
+def test_warm_up_fills_the_file_cache_so_the_first_scan_parses_nothing(scanner, counted):
+    scanner.warm_in_background().join(timeout=30)
+    assert counted == {"codex": 1, "claude": 1, "copilot": 1}
+    scanner.scan()
+    assert counted == {"codex": 1, "claude": 1, "copilot": 1}
+
+
+def test_a_failed_warm_up_is_logged_and_never_raises(scanner, caplog):
+    with (
+        mock.patch.object(scanner, "scan", side_effect=RuntimeError("boom")),
+        caplog.at_level("WARNING"),
+    ):
+        scanner.warm_in_background().join(timeout=10)
+    assert "scan warm-up failed" in caplog.text

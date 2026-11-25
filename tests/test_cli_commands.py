@@ -225,6 +225,23 @@ def test_web_defaults_come_from_the_environment(env, monkeypatch):
     assert create.return_value.run.call_args.kwargs["port"] == 7001
 
 
+def test_web_warms_the_scan_cache_in_the_background_unless_disabled(env, monkeypatch):
+    with (
+        mock.patch.object(cli, "create_app") as create,
+        mock.patch.object(cli.SessionScanner, "warm_in_background") as warm,
+    ):
+        cli.main(["web"])
+    warm.assert_called_once_with()
+    assert create.call_args.kwargs["scanner"] is not None
+    monkeypatch.setenv("SESSION_CONTROL_WARM_SCAN", "off")
+    with (
+        mock.patch.object(cli, "create_app"),
+        mock.patch.object(cli.SessionScanner, "warm_in_background") as warm,
+    ):
+        cli.main(["web"])
+    warm.assert_not_called()
+
+
 def test_web_refuses_a_remote_bind_before_creating_the_app(env):
     with (
         mock.patch.object(cli, "create_app") as create,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shlex
@@ -26,6 +27,8 @@ from session_control.home_profiles import profile_homes, resume_args
 from session_control.models import ScanError, ScanReport, SessionRecord
 
 UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+logger = logging.getLogger(__name__)
 
 PROVIDERS = ("codex", "claude", "continue", "copilot", "grok", "agy", "claude-web")
 CLAUDE_TOKEN_FIELDS = (
@@ -90,6 +93,31 @@ class SessionScanner:
         with self._lock:
             for key in [k for k in self._file_cache if k[0] == provider and k not in touched]:
                 del self._file_cache[key]
+
+    def warm_in_background(self) -> threading.Thread:
+        """Fill the per-file cache on a daemon thread so the first page load is not a cold scan.
+
+        A cold scan parses every transcript (about 14 s on a large history); a web service that
+        waits for its first visitor makes that visitor, and the latency probe, pay for it. Never
+        raises: a failed warm-up only means the first request scans as before.
+        """
+
+        def run() -> None:
+            started = time.monotonic()
+            try:
+                report = self.scan()
+            except Exception:  # noqa: BLE001 - a warm-up must never take the service down
+                logger.warning("scan warm-up failed", exc_info=True)
+                return
+            logger.info(
+                "scan warm-up: %d sessions in %.1f s",
+                len(report.sessions),
+                time.monotonic() - started,
+            )
+
+        thread = threading.Thread(target=run, name="scan-warmup", daemon=True)
+        thread.start()
+        return thread
 
     def invalidate(self) -> None:
         """Drop cached scan results after session files change on disk."""
