@@ -61,7 +61,6 @@ CLAUDE_TOKEN_FIELDS = (
     "output_tokens",
 )
 
-_RENDER_CACHE_TTL_S = 10.0
 # The page is cached with this in place of the viewer's CSRF token (a visitor without a cookie gets
 # a new token on every request, so the token cannot be part of the cache key).
 _CSRF_PLACEHOLDER = "csrf-placeholder-7f3a9c1e5b"
@@ -166,7 +165,7 @@ def create_app(
         now = time.monotonic()
         with render_lock:
             hit = render_cache.get(render_key)
-            if hit and now - hit[0] < _RENDER_CACHE_TTL_S and hit[2] is report:
+            if hit and now - hit[0] < app_config.render_cache_seconds and hit[2] is report:
                 return hit[1].replace(_CSRF_PLACEHOLDER, csrf_token)
         html = render_template(
             "index.html",
