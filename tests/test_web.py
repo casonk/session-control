@@ -379,3 +379,29 @@ def test_cached_index_still_carries_each_viewers_own_csrf_token(app_config):
     assert token_one != token_two
     assert token_one in page_one and token_two in page_two
     assert token_one not in page_two and "csrf-placeholder" not in page_two
+
+
+def test_render_cache_seconds_zero_renders_every_load(app_config, monkeypatch):
+    from dataclasses import replace
+
+    from session_control import web as web_module
+    from session_control.models import ScanReport
+    from session_control.web import create_app
+
+    class FixedScanner:
+        report = ScanReport(sessions=())
+
+        def scan(self, providers=None, *, allow_stale=False):
+            return self.report
+
+    renders = []
+    real = web_module.render_template
+    monkeypatch.setattr(
+        web_module, "render_template", lambda *a, **k: renders.append(1) or real(*a, **k)
+    )
+    client = create_app(
+        replace(app_config, render_cache_seconds=0.0), scanner=FixedScanner()
+    ).test_client()
+    client.get("/")
+    client.get("/")
+    assert len(renders) == 2
