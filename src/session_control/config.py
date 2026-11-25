@@ -37,6 +37,7 @@ class AppConfig:
     claude_status_timeout_seconds: int = 10
     scan_cache_ttl_seconds: float = 5.0
     scan_max_stale_seconds: float = 60.0
+    scan_keepwarm_seconds: float = 30.0
     monitor_targets: tuple[str, ...] = ()
     monitor_interval_seconds: float = 5.0
     monitor_webterm_client_cert: Path | None = None
@@ -99,6 +100,7 @@ class AppConfig:
             claude_status_timeout_seconds=_int_env("SESSION_CONTROL_CLAUDE_STATUS_TIMEOUT", 10),
             scan_cache_ttl_seconds=_float_env("SESSION_CONTROL_SCAN_CACHE_TTL", 5.0),
             scan_max_stale_seconds=_float_env("SESSION_CONTROL_SCAN_MAX_STALE", 60.0),
+            scan_keepwarm_seconds=_float_env("SESSION_CONTROL_SCAN_KEEPWARM", 30.0),
             monitor_targets=_split_csv(os.environ.get("SESSION_CONTROL_MONITOR_TARGETS", "")),
             monitor_interval_seconds=_float_env("SESSION_CONTROL_MONITOR_INTERVAL", 5.0),
             monitor_webterm_client_cert=_optional_path_env(

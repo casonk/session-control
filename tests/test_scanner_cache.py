@@ -194,3 +194,29 @@ def test_a_plain_scan_never_serves_a_stale_report(monkeypatch):
     stamp, report = scanner._cache[None]
     scanner._cache[None] = (stamp - 10, report)
     assert scanner.scan() == "new"
+
+
+def test_keep_fresh_rescans_on_an_interval_and_can_be_turned_off(monkeypatch):
+    from types import SimpleNamespace
+
+    off = SessionScanner(SimpleNamespace(scan_keepwarm_seconds=0))
+    off._keep_fresh()  # returns at once
+
+    scanner = SessionScanner(SimpleNamespace(scan_keepwarm_seconds=30))
+    refreshed = []
+    monkeypatch.setattr(scanner, "_refresh", lambda providers: refreshed.append(providers))
+
+    class Stop(Exception):
+        pass
+
+    ticks = iter([None, None, Stop()])
+
+    def fake_sleep(_seconds):
+        step = next(ticks)
+        if step is not None:
+            raise step
+
+    monkeypatch.setattr(scanner_module.time, "sleep", fake_sleep)
+    with pytest.raises(Stop):
+        scanner._keep_fresh()
+    assert refreshed == [None, None]
