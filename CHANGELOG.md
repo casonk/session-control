@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The index page reuses its last rendered HTML for up to 10 s while nothing it shows has changed (same scan report, query, notes, Claude status and viewer token). Rendering the 160-row page is ~100 ms of template work and was most of its reply time.
 - While the 30 s keep-warm loop runs, page loads no longer start their own background rescans (they slowed the request being answered); the keep-warm loop now runs on its own thread so the warm-up thread ends as before.
 - The scanner rescans every 30 s in the background after start-up (`SESSION_CONTROL_SCAN_KEEPWARM`, 0 turns it off), so the index nearly always finds a recent report instead of a rescan that took ~350 ms whenever an active session's transcript had grown.
 - The index page serves a report up to 60 s old (`SESSION_CONTROL_SCAN_MAX_STALE`) while a background thread rescans, instead of making that load wait for the rescan (about 350 ms after every 5 s idle). Only the read-only page opts in: the actions that rotate, prune or hand off sessions still scan fresh, and any action invalidates the cache.

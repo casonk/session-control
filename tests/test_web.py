@@ -325,3 +325,35 @@ def test_ecu_page_explains_when_unavailable(app_config):
     unavailable = client.get("/api/ecu")
     assert unavailable.status_code == 503
     assert unavailable.get_json() == {"error": "no ecu here"}
+
+
+def test_index_reuses_a_render_until_the_scan_or_viewer_changes(app_config, monkeypatch):
+    from session_control import web as web_module
+    from session_control.models import ScanReport
+    from session_control.web import create_app
+
+    class FixedScanner:
+        def __init__(self):
+            self.report = ScanReport(sessions=())
+
+        def scan(self, providers=None, *, allow_stale=False):
+            return self.report
+
+    scanner = FixedScanner()
+    renders = []
+    real = web_module.render_template
+    monkeypatch.setattr(
+        web_module, "render_template", lambda *a, **k: renders.append(1) or real(*a, **k)
+    )
+    client = create_app(app_config, scanner=scanner).test_client()
+
+    first = client.get("/")
+    second = client.get("/")
+    assert first.status_code == 200 and first.data == second.data and len(renders) == 1
+
+    assert client.get("/?q=other").status_code == 200  # another query is another page
+    assert len(renders) == 2
+
+    scanner.report = ScanReport(sessions=())  # a new scan result invalidates the render
+    client.get("/")
+    assert len(renders) == 3
