@@ -126,3 +126,29 @@ def test_a_failed_warm_up_is_logged_and_never_raises(scanner, caplog):
     ):
         scanner.warm_in_background().join(timeout=10)
     assert "scan warm-up failed" in caplog.text
+
+
+def test_concurrent_scans_share_one_scan(app_config):
+    import threading
+    import time
+
+    seed_claude(app_config.claude_root)
+    shared = SessionScanner(replace(app_config, scan_cache_ttl_seconds=30))
+    calls = []
+    original = shared._do_scan
+
+    def slow_scan(providers=None):
+        calls.append(providers)
+        time.sleep(0.3)
+        return original(providers)
+
+    shared._do_scan = slow_scan
+    reports = []
+    threads = [threading.Thread(target=lambda: reports.append(shared.scan())) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert len(calls) == 1
+    assert len(reports) == 4 and all(report is reports[0] for report in reports)
