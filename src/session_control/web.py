@@ -62,6 +62,9 @@ CLAUDE_TOKEN_FIELDS = (
 )
 
 _RENDER_CACHE_TTL_S = 10.0
+# The page is cached with this in place of the viewer's CSRF token (a visitor without a cookie gets
+# a new token on every request, so the token cannot be part of the cache key).
+_CSRF_PLACEHOLDER = "csrf-placeholder-7f3a9c1e5b"
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +158,6 @@ def create_app(
             selected_provider,
             selected_origin,
             query,
-            csrf_token,
             tuple(sorted(noted)),
             repr(claude_status),
             request.host,
@@ -165,7 +167,7 @@ def create_app(
         with render_lock:
             hit = render_cache.get(render_key)
             if hit and now - hit[0] < _RENDER_CACHE_TTL_S and hit[2] is report:
-                return hit[1]
+                return hit[1].replace(_CSRF_PLACEHOLDER, csrf_token)
         html = render_template(
             "index.html",
             sessions=sessions,
@@ -179,7 +181,7 @@ def create_app(
             codex_usage=_codex_usage_summary(report.sessions),
             claude_usage=_claude_usage_summary(report.sessions),
             claude_status=claude_status,
-            csrf_token=csrf_token,
+            csrf_token=_CSRF_PLACEHOLDER,
             webterm_url=app_config.webterm_url,
             codex_permission_presets=CODEX_PERMISSION_PRESET_CHOICES,
             codex_permission_default=app_config.codex_permission_preset,
@@ -188,7 +190,7 @@ def create_app(
             if len(render_cache) >= 8:
                 render_cache.pop(next(iter(render_cache)))
             render_cache[render_key] = (now, html, report)
-        return html
+        return html.replace(_CSRF_PLACEHOLDER, csrf_token)
 
     @app.get("/sessions/<public_id>")
     def detail(public_id: str):

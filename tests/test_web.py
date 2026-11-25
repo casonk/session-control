@@ -357,3 +357,25 @@ def test_index_reuses_a_render_until_the_scan_or_viewer_changes(app_config, monk
     scanner.report = ScanReport(sessions=())  # a new scan result invalidates the render
     client.get("/")
     assert len(renders) == 3
+
+
+def test_cached_index_still_carries_each_viewers_own_csrf_token(app_config):
+    from session_control.models import ScanReport
+    from session_control.web import create_app
+
+    class FixedScanner:
+        report = ScanReport(sessions=())
+
+        def scan(self, providers=None, *, allow_stale=False):
+            return self.report
+
+    app = create_app(app_config, scanner=FixedScanner())
+    first = app.test_client()  # separate clients have separate cookies, as curl would
+    second = app.test_client()
+    page_one = first.get("/").get_data(as_text=True)
+    page_two = second.get("/").get_data(as_text=True)  # served from the cache
+    with first.session_transaction() as one, second.session_transaction() as two:
+        token_one, token_two = one["csrf_token"], two["csrf_token"]
+    assert token_one != token_two
+    assert token_one in page_one and token_two in page_two
+    assert token_one not in page_two and "csrf-placeholder" not in page_two
