@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The index page serves a report up to 60 s old (`SESSION_CONTROL_SCAN_MAX_STALE`) while a background thread rescans, instead of making that load wait for the rescan (about 350 ms after every 5 s idle). Only the read-only page opts in: the actions that rotate, prune or hand off sessions still scan fresh, and any action invalidates the cache.
 
 - Run one scan at a time: a request that arrives while a scan or the start-up warm-up is running waits for it and reuses its report instead of parsing every transcript again in parallel. On the live host a visit during warm-up made two cold scans run together and the warm-up took 56 s instead of ~14 s.
 - Warm the scan cache on a background thread when the web service starts (`SESSION_CONTROL_WARM_SCAN=0` disables), so the first page load after a restart no longer waits ~14 s for a cold scan. The service listens immediately; a request that arrives mid-warm-up still scans on its own.

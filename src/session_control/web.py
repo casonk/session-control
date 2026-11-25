@@ -134,7 +134,7 @@ def create_app(
         selected_origin = request.args.get("origin", "").strip()
         query = request.args.get("q", "").strip()
         providers = (selected_provider,) if selected_provider in PROVIDERS else None
-        report = app_scanner.scan(providers=providers)
+        report = app_scanner.scan(providers=providers, allow_stale=True)
         sessions = _filter_sessions(report.sessions, query, selected_origin)
         noted = app_memory.ids()
         counts = Counter(session.provider for session in report.sessions)
