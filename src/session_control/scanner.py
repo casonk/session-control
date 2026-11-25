@@ -48,18 +48,38 @@ class SessionScanner:
         # parallel (two cold scans took 56 s together where one takes 14 s).
         self._scan_lock = threading.Lock()
         self._cache: dict[tuple[str, ...] | None, tuple[float, ScanReport]] = {}
+        self._refreshing: set[tuple[str, ...] | None] = set()
         # Parsed transcripts by file: a scan after the report cache expires re-reads only the
         # files whose modification time or size changed, not every transcript (about 20 s cold).
         self._file_cache: dict[tuple[Any, ...], tuple[tuple[int, int], Any]] = {}
 
-    def scan(self, providers: tuple[str, ...] | None = None) -> ScanReport:
+    def scan(
+        self, providers: tuple[str, ...] | None = None, *, allow_stale: bool = False
+    ) -> ScanReport:
+        """The sessions report, cached for ``scan_cache_ttl_seconds``.
+
+        ``allow_stale`` is for read-only page loads: a report older than the TTL but younger than
+        ``scan_max_stale_seconds`` is returned at once while a background thread refreshes it, so
+        browsing never waits for a rescan.  Anything that acts on sessions must leave it off.
+        """
         ttl = self.config.scan_cache_ttl_seconds
         if ttl > 0:
             now = time.monotonic()
+            refresh = False
             with self._lock:
                 entry = self._cache.get(providers)
                 if entry and now - entry[0] < ttl:
                     return entry[1]
+                stale_ok = bool(
+                    allow_stale and entry and now - entry[0] < self.config.scan_max_stale_seconds
+                )
+                if stale_ok and providers not in self._refreshing:
+                    self._refreshing.add(providers)
+                    refresh = True
+            if stale_ok:
+                if refresh:
+                    threading.Thread(target=self._refresh, args=(providers,), daemon=True).start()
+                return entry[1]
             with self._scan_lock:
                 with self._lock:
                     entry = self._cache.get(providers)
@@ -70,6 +90,18 @@ class SessionScanner:
                     self._cache[providers] = (time.monotonic(), report)
             return report
         return self._do_scan(providers)
+
+    def _refresh(self, providers: tuple[str, ...] | None) -> None:
+        try:
+            with self._scan_lock:
+                report = self._do_scan(providers)
+                with self._lock:
+                    self._cache[providers] = (time.monotonic(), report)
+        except Exception:  # noqa: BLE001 - a failed refresh just leaves the older report to expire
+            logger.warning("background scan refresh failed", exc_info=True)
+        finally:
+            with self._lock:
+                self._refreshing.discard(providers)
 
     def _memo(
         self,

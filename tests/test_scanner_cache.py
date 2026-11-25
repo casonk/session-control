@@ -152,3 +152,45 @@ def test_concurrent_scans_share_one_scan(app_config):
 
     assert len(calls) == 1
     assert len(reports) == 4 and all(report is reports[0] for report in reports)
+
+
+def test_allow_stale_serves_the_old_report_and_refreshes_in_the_background(monkeypatch):
+    from types import SimpleNamespace
+
+    config = SimpleNamespace(scan_cache_ttl_seconds=5.0, scan_max_stale_seconds=60.0)
+    scanner = SessionScanner(config)
+    reports = iter(["first", "second"])
+    monkeypatch.setattr(scanner, "_do_scan", lambda providers: next(reports))
+
+    class Inline:
+        def __init__(self, target, args=(), daemon=None):
+            self.run = lambda: target(*args)
+
+        def start(self):
+            self.run()
+
+    monkeypatch.setattr(scanner_module.threading, "Thread", Inline)
+
+    assert scanner.scan() == "first"
+    stamp, report = scanner._cache[None]
+    scanner._cache[None] = (stamp - 10, report)  # past the TTL, inside the stale window
+    assert scanner.scan(allow_stale=True) == "first"  # no waiting
+    assert scanner.scan(allow_stale=True) == "second"  # the refresh landed
+
+    scanner._cache[None] = (scanner._cache[None][0] - 120, "second")  # too old to serve
+    monkeypatch.setattr(scanner, "_do_scan", lambda providers: "third")
+    assert scanner.scan(allow_stale=True) == "third"
+
+
+def test_a_plain_scan_never_serves_a_stale_report(monkeypatch):
+    from types import SimpleNamespace
+
+    scanner = SessionScanner(
+        SimpleNamespace(scan_cache_ttl_seconds=5.0, scan_max_stale_seconds=60.0)
+    )
+    answers = iter(["old", "new"])
+    monkeypatch.setattr(scanner, "_do_scan", lambda providers: next(answers))
+    assert scanner.scan() == "old"
+    stamp, report = scanner._cache[None]
+    scanner._cache[None] = (stamp - 10, report)
+    assert scanner.scan() == "new"
