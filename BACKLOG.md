@@ -11,6 +11,7 @@ and move them to Done.
 
 ## Pending
 
+- [ ] [codecov:2026-11-25] **Raise patch coverage on PR #74: 91.3043% patched, 2 changed lines have no test coverage.** Files: src/session_control/scanner.py (2 missing, 90.47%). Add tests for the uncovered lines. (codecov-pr:74, https://github.com/casonk/session-control/pull/74#issuecomment-7155537290)
 - [ ] [codecov:2026-11-20] **Raise patch coverage on PR #68: 98.1132% patched, 1 changed lines have no test coverage.** Files: src/session_control/memory.py (1 missing, 83.33%). Add tests for the uncovered lines. (codecov-pr:68, https://github.com/casonk/session-control/pull/68#issuecomment-7048965325)
 - [ ] [manual:2026-11-13] Degrade the `werkzeug` request log (one INFO line per
   request, including polled pages) to WARNING, or DEBUG for polled endpoints,
