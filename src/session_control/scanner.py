@@ -43,6 +43,10 @@ class SessionScanner:
     def __init__(self, config: AppConfig):
         self.config = config
         self._lock = threading.Lock()
+        # One scan at a time: a request that arrives while another scan (or the start-up warm-up) is
+        # running waits for it and reuses its report, instead of parsing every transcript again in
+        # parallel (two cold scans took 56 s together where one takes 14 s).
+        self._scan_lock = threading.Lock()
         self._cache: dict[tuple[str, ...] | None, tuple[float, ScanReport]] = {}
         # Parsed transcripts by file: a scan after the report cache expires re-reads only the
         # files whose modification time or size changed, not every transcript (about 20 s cold).
@@ -56,9 +60,14 @@ class SessionScanner:
                 entry = self._cache.get(providers)
                 if entry and now - entry[0] < ttl:
                     return entry[1]
-            report = self._do_scan(providers)
-            with self._lock:
-                self._cache[providers] = (time.monotonic(), report)
+            with self._scan_lock:
+                with self._lock:
+                    entry = self._cache.get(providers)
+                    if entry and time.monotonic() - entry[0] < ttl:
+                        return entry[1]
+                report = self._do_scan(providers)
+                with self._lock:
+                    self._cache[providers] = (time.monotonic(), report)
             return report
         return self._do_scan(providers)
 
