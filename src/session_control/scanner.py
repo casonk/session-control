@@ -135,6 +135,17 @@ class SessionScanner:
             for key in [k for k in self._file_cache if k[0] == provider and k not in touched]:
                 del self._file_cache[key]
 
+    def _keep_fresh(self) -> None:
+        """Rescan every ``scan_keepwarm_seconds`` so a page load always finds a recent report.
+
+        The unfiltered report is what the index asks for.  A rescan only re-reads transcripts that
+        changed; an active session's transcript is the one that usually did.  0 turns this off.
+        """
+        interval = self.config.scan_keepwarm_seconds
+        while interval > 0:
+            time.sleep(interval)
+            self._refresh(None)
+
     def warm_in_background(self) -> threading.Thread:
         """Fill the per-file cache on a daemon thread so the first page load is not a cold scan.
 
@@ -155,6 +166,7 @@ class SessionScanner:
                 len(report.sessions),
                 time.monotonic() - started,
             )
+            self._keep_fresh()
 
         thread = threading.Thread(target=run, name="scan-warmup", daemon=True)
         thread.start()

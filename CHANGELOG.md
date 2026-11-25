@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The scanner rescans every 30 s in the background after start-up (`SESSION_CONTROL_SCAN_KEEPWARM`, 0 turns it off), so the index nearly always finds a recent report instead of a rescan that took ~350 ms whenever an active session's transcript had grown.
 - The index page serves a report up to 60 s old (`SESSION_CONTROL_SCAN_MAX_STALE`) while a background thread rescans, instead of making that load wait for the rescan (about 350 ms after every 5 s idle). Only the read-only page opts in: the actions that rotate, prune or hand off sessions still scan fresh, and any action invalidates the cache.
 
 - Run one scan at a time: a request that arrives while a scan or the start-up warm-up is running waits for it and reuses its report instead of parsing every transcript again in parallel. On the live host a visit during warm-up made two cold scans run together and the warm-up took 56 s instead of ~14 s.
