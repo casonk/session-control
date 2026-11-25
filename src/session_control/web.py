@@ -8,6 +8,8 @@ import ipaddress
 import logging
 import secrets
 import ssl
+import threading
+import time
 from collections import Counter
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -38,7 +40,7 @@ from session_control.federation import build_inventory, load_inventories, store_
 from session_control.handoff import handoff_targets_for
 from session_control.markdown_safe import render_markdown
 from session_control.memory import MemoryStore
-from session_control.models import SessionRecord
+from session_control.models import ScanReport, SessionRecord
 from session_control.scanner import PROVIDERS, SessionScanner
 
 
@@ -58,6 +60,8 @@ CLAUDE_TOKEN_FIELDS = (
     "cache_read_input_tokens",
     "output_tokens",
 )
+
+_RENDER_CACHE_TTL_S = 10.0
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +132,9 @@ def create_app(
             abort(404)
         return Response(asset[0], content_type=asset[1], headers={"Cache-Control": "no-cache"})
 
+    render_cache: dict[tuple, tuple[float, str, ScanReport]] = {}
+    render_lock = threading.Lock()
+
     @app.get("/")
     def index():
         selected_provider = request.args.get("provider", "").strip()
@@ -138,7 +145,28 @@ def create_app(
         sessions = _filter_sessions(report.sessions, query, selected_origin)
         noted = app_memory.ids()
         counts = Counter(session.provider for session in report.sessions)
-        return render_template(
+        claude_status = app_claude_status.snapshot() if app_claude_status else None
+        csrf_token = _csrf_token()
+        # Rendering the 160-row page is ~100 ms of template work, and the page only changes when
+        # the scan, the notes, the Claude status or the viewer's token does, so reuse the last few
+        # renders for a few seconds instead of redoing it for every load.
+        render_key = (
+            id(report),
+            selected_provider,
+            selected_origin,
+            query,
+            csrf_token,
+            tuple(sorted(noted)),
+            repr(claude_status),
+            request.host,
+            request.script_root,
+        )
+        now = time.monotonic()
+        with render_lock:
+            hit = render_cache.get(render_key)
+            if hit and now - hit[0] < _RENDER_CACHE_TTL_S and hit[2] is report:
+                return hit[1]
+        html = render_template(
             "index.html",
             sessions=sessions,
             errors=report.errors,
@@ -150,12 +178,17 @@ def create_app(
             memory_ids=noted,
             codex_usage=_codex_usage_summary(report.sessions),
             claude_usage=_claude_usage_summary(report.sessions),
-            claude_status=app_claude_status.snapshot() if app_claude_status else None,
-            csrf_token=_csrf_token(),
+            claude_status=claude_status,
+            csrf_token=csrf_token,
             webterm_url=app_config.webterm_url,
             codex_permission_presets=CODEX_PERMISSION_PRESET_CHOICES,
             codex_permission_default=app_config.codex_permission_preset,
         )
+        with render_lock:
+            if len(render_cache) >= 8:
+                render_cache.pop(next(iter(render_cache)))
+            render_cache[render_key] = (now, html, report)
+        return html
 
     @app.get("/sessions/<public_id>")
     def detail(public_id: str):
