@@ -49,6 +49,7 @@ class SessionScanner:
         self._scan_lock = threading.Lock()
         self._cache: dict[tuple[str, ...] | None, tuple[float, ScanReport]] = {}
         self._refreshing: set[tuple[str, ...] | None] = set()
+        self._keepwarm_running = False
         # Parsed transcripts by file: a scan after the report cache expires re-reads only the
         # files whose modification time or size changed, not every transcript (about 20 s cold).
         self._file_cache: dict[tuple[Any, ...], tuple[tuple[int, int], Any]] = {}
@@ -73,7 +74,7 @@ class SessionScanner:
                 stale_ok = bool(
                     allow_stale and entry and now - entry[0] < self.config.scan_max_stale_seconds
                 )
-                if stale_ok and providers not in self._refreshing:
+                if stale_ok and not self._keepwarm_running and providers not in self._refreshing:
                     self._refreshing.add(providers)
                     refresh = True
             if stale_ok:
@@ -142,7 +143,12 @@ class SessionScanner:
         changed; an active session's transcript is the one that usually did.  0 turns this off.
         """
         interval = self.config.scan_keepwarm_seconds
-        while interval > 0:
+        if interval <= 0:
+            return
+        # Requests must not start their own rescans while this loop runs: a rescan in the same
+        # process slows the request that is being answered (the GIL), and one every 30 s is enough.
+        self._keepwarm_running = True
+        while True:
             time.sleep(interval)
             self._refresh(None)
 
@@ -166,7 +172,7 @@ class SessionScanner:
                 len(report.sessions),
                 time.monotonic() - started,
             )
-            self._keep_fresh()
+            threading.Thread(target=self._keep_fresh, name="scan-keepwarm", daemon=True).start()
 
         thread = threading.Thread(target=run, name="scan-warmup", daemon=True)
         thread.start()

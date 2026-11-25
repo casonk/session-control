@@ -220,3 +220,22 @@ def test_keep_fresh_rescans_on_an_interval_and_can_be_turned_off(monkeypatch):
     with pytest.raises(Stop):
         scanner._keep_fresh()
     assert refreshed == [None, None]
+
+
+def test_requests_do_not_start_rescans_while_the_keepwarm_loop_runs(monkeypatch):
+    from types import SimpleNamespace
+
+    scanner = SessionScanner(
+        SimpleNamespace(scan_cache_ttl_seconds=5.0, scan_max_stale_seconds=60.0)
+    )
+    monkeypatch.setattr(scanner, "_do_scan", lambda providers: "report")
+    started = []
+    monkeypatch.setattr(scanner_module.threading, "Thread", lambda **kw: started.append(kw) or None)
+    scanner.scan()
+    stamp, report = scanner._cache[None]
+    scanner._cache[None] = (stamp - 10, report)
+
+    scanner._keepwarm_running = True
+    assert scanner.scan(allow_stale=True) == "report" and not started  # served, no thread
+    scanner._keepwarm_running = False
+    scanner._cache[None] = (stamp - 10, report)
