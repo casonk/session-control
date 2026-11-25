@@ -41,6 +41,9 @@ class SessionScanner:
         self.config = config
         self._lock = threading.Lock()
         self._cache: dict[tuple[str, ...] | None, tuple[float, ScanReport]] = {}
+        # Parsed transcripts by file: a scan after the report cache expires re-reads only the
+        # files whose modification time or size changed, not every transcript (about 20 s cold).
+        self._file_cache: dict[tuple[Any, ...], tuple[tuple[int, int], Any]] = {}
 
     def scan(self, providers: tuple[str, ...] | None = None) -> ScanReport:
         ttl = self.config.scan_cache_ttl_seconds
@@ -55,6 +58,38 @@ class SessionScanner:
                 self._cache[providers] = (time.monotonic(), report)
             return report
         return self._do_scan(providers)
+
+    def _memo(
+        self,
+        provider: str,
+        kind: str,
+        path: Path,
+        extra: Any,
+        touched: set,
+        build: Callable[[], Any],
+    ) -> Any:
+        """``build()`` for ``path``, reused while the file's modification time and size are unchanged."""
+        key = (provider, kind, str(path), extra)
+        touched.add(key)
+        try:
+            stat = path.stat()
+        except OSError:
+            return build()
+        signature = (stat.st_mtime_ns, stat.st_size)
+        with self._lock:
+            hit = self._file_cache.get(key)
+        if hit and hit[0] == signature:
+            return hit[1]
+        value = build()
+        with self._lock:
+            self._file_cache[key] = (signature, value)
+        return value
+
+    def _forget_untouched(self, provider: str, touched: set) -> None:
+        """Drop cached files of ``provider`` that this scan no longer saw (deleted or moved)."""
+        with self._lock:
+            for key in [k for k in self._file_cache if k[0] == provider and k not in touched]:
+                del self._file_cache[key]
 
     def invalidate(self) -> None:
         """Drop cached scan results after session files change on disk."""
@@ -92,59 +127,93 @@ class SessionScanner:
     def _scan_codex(self) -> ScanReport:
         records: list[SessionRecord] = []
         errors: list[ScanError] = []
+        touched: set = set()
         for root, profile_name in profile_homes(self.config.codex_root, "codex"):
-            index = _read_codex_index(root / "session_index.jsonl")
+            index_path = root / "session_index.jsonl"
+            index = _read_codex_index(index_path)
+            index_signature = _file_signature(index_path)
             for base in (root / "sessions", root / "archived_sessions"):
                 if not base.exists():
                     continue
                 for path in base.rglob("*.jsonl"):
-                    issue = _probe_jsonl(
+                    issue = self._memo(
+                        "codex",
+                        "probe",
                         path,
-                        description="Codex session",
-                        supported=lambda item: bool(item.get("type")),
-                        expectation="a typed event record",
+                        None,
+                        touched,
+                        lambda path=path: _probe_jsonl(
+                            path,
+                            description="Codex session",
+                            supported=lambda item: bool(item.get("type")),
+                            expectation="a typed event record",
+                        ),
                     )
                     if issue:
                         errors.append(ScanError("codex", issue))
                         continue
-                    record = _codex_record(
+                    record = self._memo(
+                        "codex",
+                        "record",
                         path,
-                        index,
-                        self.config.max_preview_chars,
-                        self.config.codex_resume_model,
-                        self.config.codex_permission_preset,
-                        profile_name=profile_name,
+                        (index_signature, profile_name),
+                        touched,
+                        lambda path=path, index=index, profile_name=profile_name: _codex_record(
+                            path,
+                            index,
+                            self.config.max_preview_chars,
+                            self.config.codex_resume_model,
+                            self.config.codex_permission_preset,
+                            profile_name=profile_name,
+                        ),
                     )
                     if record:
                         records.append(record)
+        self._forget_untouched("codex", touched)
         return ScanReport(tuple(records), tuple(errors))
 
     def _scan_claude(self) -> ScanReport:
         records: list[SessionRecord] = []
         errors: list[ScanError] = []
+        touched: set = set()
         local_sessions = _read_crew_chief_registry(self.config.crew_chief_registry)
         for home, profile_name in profile_homes(self.config.claude_root, "claude"):
             root = home / "projects"
             if not root.exists():
                 continue
             for path in root.rglob("*.jsonl"):
-                issue = _probe_jsonl(
+                issue = self._memo(
+                    "claude",
+                    "probe",
                     path,
-                    description="Claude Code session",
-                    supported=lambda item: bool(item.get("sessionId")),
-                    expectation="a record with sessionId",
+                    None,
+                    touched,
+                    lambda path=path: _probe_jsonl(
+                        path,
+                        description="Claude Code session",
+                        supported=lambda item: bool(item.get("sessionId")),
+                        expectation="a record with sessionId",
+                    ),
                 )
                 if issue:
                     errors.append(ScanError("claude", issue))
                     continue
-                record = _claude_record(
-                    path, self.config.max_preview_chars, profile_name=profile_name
+                record = self._memo(
+                    "claude",
+                    "record",
+                    path,
+                    profile_name,
+                    touched,
+                    lambda path=path, profile_name=profile_name: _claude_record(
+                        path, self.config.max_preview_chars, profile_name=profile_name
+                    ),
                 )
                 if record:
                     local = local_sessions.get(record.session_id)
                     if local:
                         record = _with_local_backend(record, local)
                     records.append(record)
+        self._forget_untouched("claude", touched)
         return ScanReport(tuple(records), tuple(errors))
 
     def _scan_continue(self) -> ScanReport:
@@ -195,6 +264,7 @@ class SessionScanner:
     def _scan_copilot(self) -> ScanReport:
         records: list[SessionRecord] = []
         errors: list[ScanError] = []
+        touched: set = set()
         for home, profile_name in profile_homes(self.config.copilot_root, "copilot"):
             root = home / "session-state"
             if not root.exists():
@@ -216,20 +286,43 @@ class SessionScanner:
                     continue
                 events = session_dir / "events.jsonl"
                 if events.exists():
-                    issue = _probe_jsonl(
+                    issue = self._memo(
+                        "copilot",
+                        "probe",
                         events,
-                        description="Copilot event log",
-                        supported=lambda item: bool(item.get("type")),
-                        expectation="a typed event record",
+                        None,
+                        touched,
+                        lambda events=events: _probe_jsonl(
+                            events,
+                            description="Copilot event log",
+                            supported=lambda item: bool(item.get("type")),
+                            expectation="a typed event record",
+                        ),
                     )
                     if issue:
                         errors.append(ScanError("copilot", issue))
                         continue
-                record = _copilot_record(
-                    session_dir, self.config.max_preview_chars, profile_name=profile_name
+                # The record also reads workspace.yaml, the checkpoint index and the directory's own
+                # modification time, so each is part of the key beside the events file's signature.
+                inputs = (
+                    _file_signature(workspace_file),
+                    _file_signature(session_dir / "checkpoints" / "index.md"),
+                    _file_signature(session_dir),
+                    profile_name,
+                )
+                record = self._memo(
+                    "copilot",
+                    "record",
+                    events if events.exists() else workspace_file,
+                    inputs,
+                    touched,
+                    lambda session_dir=session_dir, profile_name=profile_name: _copilot_record(
+                        session_dir, self.config.max_preview_chars, profile_name=profile_name
+                    ),
                 )
                 if record:
                     records.append(record)
+        self._forget_untouched("copilot", touched)
         return ScanReport(tuple(records), tuple(errors))
 
     def _scan_grok(self) -> ScanReport:
@@ -1036,6 +1129,14 @@ def _with_local_backend(record: SessionRecord, local: dict[str, str]) -> Session
         resume_command=_command(record.workspace, args),
         metadata={**record.metadata, "local_backend": local},
     )
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
 
 
 def _read_codex_index(path: Path) -> dict[str, dict[str, Any]]:
