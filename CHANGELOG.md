@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- `GET /api/update-rate` reports the index page's effective update rate (shown on tachometer's latency page). Documentation fix: `SESSION_CONTROL_SCAN_MAX_STALE=0` still reuses a report for `SESSION_CONTROL_SCAN_CACHE_TTL` (5 s); it does not scan on every load.
 - The index page's update rate is configurable per service: `SESSION_CONTROL_SCAN_MAX_STALE`, `SESSION_CONTROL_SCAN_KEEPWARM` and the new `SESSION_CONTROL_RENDER_CACHE_TTL` (seconds; defaults 60 / 30 / 10; `0` is allowed). See `config/session-control.env.example`.
 - The cached index page no longer keys on the viewer's CSRF token (a visitor without a cookie, such as the latency probe, gets a new one every request and never hit the cache); the token is substituted into the cached HTML per request.
 - The index page reuses its last rendered HTML for up to 10 s while nothing it shows has changed (same scan report, query, notes, Claude status and viewer token). Rendering the 160-row page is ~100 ms of template work and was most of its reply time.

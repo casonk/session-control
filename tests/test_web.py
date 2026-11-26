@@ -405,3 +405,31 @@ def test_render_cache_seconds_zero_renders_every_load(app_config, monkeypatch):
     client.get("/")
     client.get("/")
     assert len(renders) == 2
+
+
+def test_update_rate_reports_the_values_in_effect(app_config):
+    def rate(**changes):
+        client = create_app(replace(app_config, **changes)).test_client()
+        response = client.get("/api/update-rate")
+        assert response.headers["Cache-Control"] == "no-store"
+        return response.get_json()
+
+    defaults = rate(
+        scan_cache_ttl_seconds=5.0,
+        scan_max_stale_seconds=60.0,
+        scan_keepwarm_seconds=30.0,
+        render_cache_seconds=10.0,
+    )
+    assert defaults["summary"] == "sessions ≤ 60 s old · rescanned every 30 s · page reused 10 s"
+    assert defaults["settings"]["SESSION_CONTROL_SCAN_MAX_STALE"] == 60.0
+    # Turning stale serving off still leaves the scan cache TTL.
+    strict = rate(
+        scan_cache_ttl_seconds=5.0,
+        scan_max_stale_seconds=0.0,
+        scan_keepwarm_seconds=0.0,
+        render_cache_seconds=0.0,
+    )
+    assert strict["summary"] == "sessions ≤ 5 s old"
+    assert rate(scan_cache_ttl_seconds=0.0, render_cache_seconds=0.0)["summary"] == (
+        "sessions scanned on every load"
+    )

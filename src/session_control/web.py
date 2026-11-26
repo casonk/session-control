@@ -68,6 +68,29 @@ _CSRF_PLACEHOLDER = "csrf-placeholder-7f3a9c1e5b"
 logger = logging.getLogger(__name__)
 
 
+def _update_rate(config: AppConfig) -> dict:
+    """How old the index page's session list can be, in words and as the settings behind it."""
+    ttl = config.scan_cache_ttl_seconds
+    if ttl <= 0:
+        summary = "sessions scanned on every load"
+    else:
+        # A report is reused inside the TTL even when stale serving is off.
+        summary = f"sessions ≤ {max(ttl, config.scan_max_stale_seconds):g} s old"
+        if config.scan_keepwarm_seconds > 0:
+            summary += f" · rescanned every {config.scan_keepwarm_seconds:g} s"
+    if config.render_cache_seconds > 0:
+        summary += f" · page reused {config.render_cache_seconds:g} s"
+    return {
+        "summary": summary,
+        "settings": {
+            "SESSION_CONTROL_SCAN_CACHE_TTL": ttl,
+            "SESSION_CONTROL_SCAN_MAX_STALE": config.scan_max_stale_seconds,
+            "SESSION_CONTROL_SCAN_KEEPWARM": config.scan_keepwarm_seconds,
+            "SESSION_CONTROL_RENDER_CACHE_TTL": config.render_cache_seconds,
+        },
+    }
+
+
 def create_app(
     config: AppConfig | None = None,
     scanner: SessionScanner | None = None,
@@ -274,6 +297,13 @@ def create_app(
                 "status": app_claude_status.snapshot(),
             }
         )
+
+    @app.get("/api/update-rate")
+    def api_update_rate():
+        """The index page's effective update rate, for tachometer's latency page."""
+        response = jsonify(_update_rate(app_config))
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/healthz")
     def healthz():
